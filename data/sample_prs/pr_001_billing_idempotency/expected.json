@@ -1,0 +1,16 @@
+{
+  "summary": "Add X-Request-Id idempotency to billing subscription-renewal webhook handler per ADR-014.",
+  "risk_level": "MEDIUM-HIGH",
+  "must_mention_systems": ["billing-api", "subscription-service", "audit-log", "redis-cache"],
+  "must_mention_incidents": ["INC-2025-02"],
+  "must_mention_adrs": ["ADR-014"],
+  "must_mention_approvers": ["Billing Engineering Lead", "Compliance Officer"],
+  "rollback_complexity": "MODERATE",
+  "anti_patterns": [
+    "must not name systems outside service_catalog.json",
+    "must not cite incidents that do not exist in the corpus",
+    "must not claim 'no historical incidents found' when INC-2025-02 is directly relevant"
+  ],
+  "split": "dev",
+  "notes": "Anchor case — the canonical billing idempotency scenario. INC-2025-02 must be retrieved as historical context."
+}

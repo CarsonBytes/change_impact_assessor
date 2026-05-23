@@ -1,0 +1,99 @@
+{
+  "company": "Fintora",
+  "description": "Synthetic HK digital bank — used as a closed corpus for Change Impact Assessor demos. Not a real entity.",
+  "services": [
+    {
+      "name": "kong-gateway",
+      "team": "Platform Engineering",
+      "owner_role": "Platform Engineering Lead",
+      "depends_on": [],
+      "depended_on_by": ["mobile-banking-bff", "billing-api", "kyc-service", "public-statements-api"],
+      "compliance_scope": ["HKMA TLS"],
+      "related_adrs": ["ADR-001"]
+    },
+    {
+      "name": "billing-api",
+      "team": "Billing Engineering",
+      "owner_role": "Billing Engineering Lead",
+      "depends_on": ["payments-svc", "audit-log", "redis-cache", "subscription-service"],
+      "depended_on_by": ["mobile-banking-bff", "kong-gateway"],
+      "compliance_scope": ["HKMA SR-2024-08"],
+      "related_adrs": ["ADR-014", "ADR-021"],
+      "idempotency_exempt": []
+    },
+    {
+      "name": "payments-svc",
+      "team": "Payments Engineering",
+      "owner_role": "Payments Engineering Lead",
+      "depends_on": ["audit-log", "redis-cache", "external-fps-network"],
+      "depended_on_by": ["billing-api", "subscription-service"],
+      "compliance_scope": ["HKMA SR-2024-08", "PCI DSS 4.0"],
+      "related_adrs": ["ADR-014", "ADR-021"]
+    },
+    {
+      "name": "subscription-service",
+      "team": "Billing Engineering",
+      "owner_role": "Billing Engineering Lead",
+      "depends_on": ["billing-api", "audit-log"],
+      "depended_on_by": ["mobile-banking-bff"],
+      "compliance_scope": ["HKMA SR-2024-08"],
+      "related_adrs": ["ADR-014"]
+    },
+    {
+      "name": "audit-log",
+      "team": "Data Engineering",
+      "owner_role": "Data Engineering Lead",
+      "depends_on": ["kafka-cluster", "clickhouse-cluster", "s3-glacier"],
+      "depended_on_by": ["billing-api", "payments-svc", "subscription-service", "kyc-service"],
+      "compliance_scope": ["HKMA SR-2024-08"],
+      "related_adrs": ["ADR-021"]
+    },
+    {
+      "name": "kyc-service",
+      "team": "Compliance Engineering",
+      "owner_role": "Compliance Engineering Lead",
+      "depends_on": ["audit-log", "external-id-verification"],
+      "depended_on_by": ["mobile-banking-bff", "kong-gateway"],
+      "compliance_scope": ["HKMA KYC", "PDPO"],
+      "related_adrs": []
+    },
+    {
+      "name": "mobile-banking-bff",
+      "team": "Mobile Engineering",
+      "owner_role": "Mobile Engineering Lead",
+      "depends_on": ["billing-api", "kyc-service", "subscription-service"],
+      "depended_on_by": [],
+      "compliance_scope": ["HKMA"],
+      "related_adrs": []
+    },
+    {
+      "name": "public-statements-api",
+      "team": "Customer Platform",
+      "owner_role": "Customer Platform Lead",
+      "depends_on": ["billing-api", "audit-log"],
+      "depended_on_by": ["kong-gateway"],
+      "compliance_scope": ["HKMA"],
+      "related_adrs": []
+    },
+    {
+      "name": "redis-cache",
+      "team": "Platform Engineering",
+      "owner_role": "Platform Engineering Lead",
+      "depends_on": [],
+      "depended_on_by": ["billing-api", "payments-svc"],
+      "compliance_scope": [],
+      "related_adrs": ["ADR-014"]
+    }
+  ],
+  "approver_roles": [
+    "Platform Engineering Lead",
+    "Billing Engineering Lead",
+    "Payments Engineering Lead",
+    "Data Engineering Lead",
+    "Compliance Engineering Lead",
+    "Compliance Officer",
+    "Mobile Engineering Lead",
+    "Customer Platform Lead",
+    "Head of Engineering"
+  ]
+}
