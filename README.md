@@ -30,21 +30,17 @@ This project is built in phases. The current state and what remains are below.
 - Streamlit UI with mock-mode fallback — `app.py`
 - Corpus validator — `eval/validate_corpus.py`
 - Eval harness with dev/test split — `eval/run_eval.py`
-- 3 anchor ADRs, 1 postmortem, service catalog, 1 sample PR with expected output
 - pytest suite (schema + corpus validator); runs without API keys
 
-The Streamlit UI is demo-able today using mock data. Live LLM execution requires Phase 1.
+### Phase 1 — Live execution (complete)
 
-### Phase 1 — Live execution (TODO)
+- `score_blast_radius` node — LLM-prompt, two confidence signals (retrieval + LLM), risk classification with cited drivers
+- `identify_approvers` node — deterministic catalog lookup, no LLM call
+- `suggest_tests` node — LLM-prompt, suite-naming convention enforced
+- UI switched from mock to real via `graph.stream()` — per-node progress shown live in `st.status()`; mock-mode retained as a fallback when no API key is set
+- 3 ADRs · 3 postmortems · 9 services · 5 sample PRs (3 dev, 2 held-out test)
 
-| Task | File | Notes |
-|---|---|---|
-| Implement `score_blast_radius` | `assessor/nodes/score_blast_radius.py` | LLM-prompt node; follow `extract_targets.py` pattern. Detailed checklist in the file docstring. |
-| Implement `identify_approvers` | `assessor/nodes/identify_approvers.py` | Can be deterministic (service-catalog lookup) or LLM-based. Both approaches noted in the docstring. |
-| Implement `suggest_tests` | `assessor/nodes/suggest_tests.py` | LLM-prompt node; same pattern as `extract_targets`. |
-| Switch UI from mock to real | `app.py` | Replace `_mock_assessment(change)` with `run_assessment(change)` from `assessor.graph`. |
-| Add 4 more sample PRs (2 dev, 2 held-out test) | `data/sample_prs/` | Each needs `pr.json` and `expected.json`. |
-| Run eval against held-out test set | `eval/run_eval.py --split test` | Writes `eval/results.md`. |
+Run `python -m eval.run_eval --split test` against the held-out set to populate `eval/results.md`.
 
 ### Phase 2 — Optional extensions (not started)
 

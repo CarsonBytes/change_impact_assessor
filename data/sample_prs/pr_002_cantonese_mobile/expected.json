@@ -1,0 +1,16 @@
+{
+  "summary": "Add Cantonese localisation to mobile-banking-bff (KYC, statements, transactions).",
+  "risk_level": "MEDIUM",
+  "must_mention_systems": ["mobile-banking-bff", "kyc-service"],
+  "must_mention_incidents": [],
+  "must_mention_adrs": [],
+  "must_mention_approvers": ["Mobile Engineering Lead", "Compliance Officer"],
+  "rollback_complexity": "TRIVIAL",
+  "anti_patterns": [
+    "must not name systems outside service_catalog.json",
+    "must not classify as HIGH (no payment processing touched)",
+    "must not invent incidents — no relevant ones exist for i18n"
+  ],
+  "split": "dev",
+  "notes": "Localisation case. KYC strings trigger Compliance Officer because kyc-service has HKMA KYC scope. Otherwise low-risk."
+}

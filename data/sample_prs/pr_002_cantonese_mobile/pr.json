@@ -1,0 +1,5 @@
+{
+  "title": "Add Cantonese (zh-HK) localisation to mobile banking flows",
+  "description": "Adds Cantonese strings for the mobile-banking-bff transaction-history, statements, and KYC verification screens. KYC strings reviewed by Compliance for regulatory wording per HKMA KYC scope. Pure string additions — no logic changes.",
+  "diff": "diff --git a/mobile-banking-bff/src/i18n/zh-HK.json b/mobile-banking-bff/src/i18n/zh-HK.json\nnew file mode 100644\n--- /dev/null\n+++ b/mobile-banking-bff/src/i18n/zh-HK.json\n@@ -0,0 +1,42 @@\n+{\n+  \"transactions.history.title\": \"交易記錄\",\n+  \"statements.download.button\": \"下載月結單\",\n+  \"kyc.verify.id_upload\": \"上傳身份證明\",\n+  ...\n+}\n\ndiff --git a/mobile-banking-bff/src/i18n/loader.ts\n@@ -8,7 +8,7 @@\n-const SUPPORTED_LOCALES = ['en', 'zh-CN'];\n+const SUPPORTED_LOCALES = ['en', 'zh-CN', 'zh-HK'];\n"
+}

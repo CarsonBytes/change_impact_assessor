@@ -1,0 +1,5 @@
+{
+  "title": "Migrate audit-log ClickHouse cluster to ap-southeast-3 region",
+  "description": "Moves the audit-log hot tier from ap-east-1 to ap-southeast-3 to reduce latency for downstream consumers in JKT. Requires synchronized cutover of all producers (billing-api, payments-svc, subscription-service, kyc-service) on the Kafka topic. The migration plan includes a 24h dual-write window. Per ADR-021 the hash chain must remain unbroken across the cutover — see INC-2025-09 for prior concerns.",
+  "diff": "diff --git a/audit-log/terraform/regions.tf\n@@ -3,7 +3,7 @@\n-provider \"aws\" { region = \"ap-east-1\" }\n+provider \"aws\" { region = \"ap-southeast-3\" }\n\ndiff --git a/audit-log/src/clickhouse_client.py\n@@ -12,7 +12,7 @@\n-CLICKHOUSE_CLUSTER_ENDPOINT = os.environ['CH_ENDPOINT_AP_EAST_1']\n+CLICKHOUSE_CLUSTER_ENDPOINT = os.environ['CH_ENDPOINT_AP_SOUTHEAST_3']\n\ndiff --git a/audit-log/migration/dual_write_window.md\n@@ -0,0 +1,30 @@\n+# 24h dual-write window plan\n+...\n"
+}

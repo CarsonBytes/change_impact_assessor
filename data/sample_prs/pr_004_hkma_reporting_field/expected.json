@@ -1,0 +1,16 @@
+{
+  "summary": "Add HKMA-mandated beneficiary residence status field to daily transaction reports.",
+  "risk_level": "HIGH",
+  "must_mention_systems": ["billing-api", "audit-log"],
+  "must_mention_incidents": [],
+  "must_mention_adrs": ["ADR-021"],
+  "must_mention_approvers": ["Billing Engineering Lead", "Data Engineering Lead", "Compliance Officer"],
+  "rollback_complexity": "MODERATE",
+  "anti_patterns": [
+    "must not classify lower than MEDIUM-HIGH — HKMA regulatory change requires Compliance review",
+    "must not omit audit-log as affected — emit semantics change",
+    "must not name approvers outside the catalog"
+  ],
+  "split": "test",
+  "notes": "Held-out test case. Regulatory change with no prior incident reference. Tests recall on compliance-driven approval and audit-log identification."
+}

@@ -1,0 +1,5 @@
+{
+  "title": "Tighten Kong rate-limit on /public-statements endpoints from 60/min to 30/min",
+  "description": "Customer support reports increased scraping-bot traffic on the public-statements-api via /v1/statements/* endpoints. Halving the rate limit at the Kong layer (per-IP) per ADR-001 plugin config. No backend code change.",
+  "diff": "diff --git a/kong/plugins/rate-limiting/public_statements.yaml\n@@ -3,7 +3,7 @@\n config:\n   policy: local\n-  minute: 60\n+  minute: 30\n   hour: 1000\n"
+}

@@ -1,39 +1,111 @@
 """
-Node: suggest_tests   (TO IMPLEMENT — ~1.5h)
+Node: suggest_tests
 
-Given the change + affected systems, propose regression test suites to
-re-run. This is an LLM-prompt node like extract_targets.
+LLM-prompt node. Given the change + affected systems, propose regression
+test suites to re-run.
 
-IMPLEMENTATION HINTS:
+DESIGN NOTES:
 
-  1. Pydantic model for the JSON output:
-       {
-         "regression_tests": [
-           {"target": "billing-integration-suite",
-            "rationale": "Verifies webhook idempotency under retry"}
-         ]
-       }
+1. Test names follow the convention `<service-or-flow>-<level>` where
+   level ∈ {unit, integration, e2e, replay}. The prompt teaches this
+   convention so output is consistent across runs.
 
-  2. System prompt:
-       - Suggest test SUITE names that would be standard in a fintech
-         (e.g. <service>-unit, <service>-integration, end-to-end-<flow>,
-         audit-log-replay-tests, idempotency-replay-tests, ...)
-       - For each: one-line rationale tying the test to this specific change
-       - 3-6 suggestions; prefer specific over generic
-       - No need to invent novel suite names — use the conventional pattern
-         `<service-or-flow>-<level>` where level ∈ {unit, integration,
-         e2e, replay}
+2. We deliberately do NOT have the LLM invent novel test suite names
+   (like "billing-webhook-replay-with-redis-fault-injection"). Those are
+   developer-creative names that would vary run to run; we want stable,
+   conventional names a CI system could match by glob.
 
-  3. User message: change description + affected systems list
+3. 3-6 suggestions is the sweet spot — fewer feels lazy, more becomes
+   spam in the PR checklist.
 
-  4. Same retry-once-on-validation-failure pattern as extract_targets.
-
-RETURN:
-    {"regression_tests": [RegressionTest(target=..., rationale=...), ...]}
+4. Same retry-once-on-validation-failure pattern as extract_targets.
 """
 from __future__ import annotations
 
+from pydantic import BaseModel, Field, ValidationError
+
+from ..llm import call_llm_json
+from ..schema import RegressionTest
+
+
+SYSTEM_PROMPT = """You are an engineering reviewer recommending regression tests for a proposed change.
+
+You will receive:
+  - The proposed change (title, description, diff)
+  - The list of affected systems (already identified)
+  - The risk level
+
+Produce JSON conforming to this schema:
+
+{
+  "regression_tests": [
+    {
+      "target": "<service-or-flow>-<level>",
+      "rationale": "one-sentence — what this test would verify in the context of this change"
+    }
+  ]
+}
+
+Naming convention for `target`:
+  - Use the pattern: <service-name>-<level>  where level is one of:
+      unit, integration, e2e, replay, contract, smoke
+  - Examples: billing-integration-suite, audit-log-replay-tests,
+              kong-gateway-smoke, payments-svc-contract-tests
+  - Do NOT invent overly-specific names like
+    "billing-webhook-replay-with-redis-fault-injection". Stick to the
+    naming convention; rationale carries the specifics.
+
+Rules:
+  - 3 to 6 suggestions. Fewer feels lazy; more is spam.
+  - Each rationale must reference WHAT in this specific change the test
+    would catch — not generic "verifies billing works".
+  - Prefer testing the boundary of the change rather than internal code.
+"""
+
+
+class _TestSuggestion(BaseModel):
+    target: str
+    rationale: str
+
+
+class _TestsOutput(BaseModel):
+    regression_tests: list[_TestSuggestion] = Field(default_factory=list, min_length=1, max_length=8)
+
+
+def _build_user_message(state: dict) -> str:
+    change = state["change"]
+    affected = state.get("affected_systems") or []
+    risk = state.get("risk_level") or "MEDIUM"
+
+    affected_lines = "\n".join(f"- {s.name}: {s.reason}" for s in affected) or "(none identified)"
+
+    return (
+        f"## Proposed change\n"
+        f"**Title:** {change.title}\n"
+        f"**Description:** {change.description}\n\n"
+        f"**Diff (first 3000 chars):**\n```\n{(change.diff or '(none)')[:3000]}\n```\n\n"
+        f"## Affected systems\n{affected_lines}\n\n"
+        f"## Risk level\n{risk}\n"
+    )
+
 
 def suggest_tests(state: dict, *, llm_fn=None) -> dict:
-    # TODO: implement following extract_targets.py pattern
-    return {"regression_tests": []}
+    user_msg = _build_user_message(state)
+
+    try:
+        raw = call_llm_json(SYSTEM_PROMPT, user_msg, llm_fn=llm_fn)
+        parsed = _TestsOutput.model_validate(raw)
+    except (ValidationError, ValueError) as e:
+        retry_msg = (
+            user_msg
+            + f"\n\n## Previous attempt failed validation\n{e}\n"
+            + "Please respond again with valid JSON matching the schema."
+        )
+        raw = call_llm_json(SYSTEM_PROMPT, retry_msg, llm_fn=llm_fn)
+        parsed = _TestsOutput.model_validate(raw)
+
+    tests = [
+        RegressionTest(target=t.target, rationale=t.rationale)
+        for t in parsed.regression_tests
+    ]
+    return {"regression_tests": tests}

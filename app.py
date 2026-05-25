@@ -212,26 +212,74 @@ def _mock_assessment(change: ChangeInput) -> ImpactAssessment:
 
 # ─── Run assessment (form submitted) ────────────────────────────────────────
 
+# Map LangGraph node names → human-readable progress labels.
+_NODE_LABELS = {
+    "extract_targets":           "Extracted change targets",
+    "retrieve_dependency_ctx":   "Retrieved dependency context (ADRs + service catalog)",
+    "retrieve_incident_ctx":     "Retrieved incident history",
+    "score_blast_radius":        "Scored blast radius",
+    "identify_approvers":        "Identified approvers",
+    "suggest_tests":             "Suggested regression tests",
+    "assemble":                  "Assembled assessment",
+}
+
+# Mock mode is retained as a safety fallback when no API key is present.
+_HAS_API_KEY = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY"))
+
+
+def _run_real_assessment(change, status_container):
+    """
+    Run the LangGraph end-to-end, streaming per-node progress to the UI.
+    Returns the final ImpactAssessment, or None on failure.
+    """
+    from assessor.graph import build_graph
+    import time
+
+    graph = build_graph()
+    started = time.time()
+    initial_state: dict = {"change": change, "started_at": started}
+
+    final_state: dict = {}
+    try:
+        for event in graph.stream(initial_state):
+            # `event` is a dict {node_name: partial_state_update}
+            for node_name, partial in event.items():
+                label = _NODE_LABELS.get(node_name, node_name)
+                status_container.write(f"✅ {label}")
+                if isinstance(partial, dict):
+                    final_state.update(partial)
+    except Exception as e:
+        status_container.error(f"Assessment failed: {e}")
+        return None
+
+    assessment = final_state.get("assessment")
+    if assessment is not None:
+        assessment.elapsed_seconds = round(time.time() - started, 2)
+    return assessment
+
+
 if submitted:
     if not title.strip():
         st.error("PR title is required.")
         st.stop()
     change = ChangeInput(title=title, description=description, diff=diff_text or None)
 
-    # Live status — the visual demo moment
     with st.status("🔄 Assessing impact...", expanded=True) as status:
-        st.write("✅ Extracted change targets")
-        st.write("✅ Retrieved dependency context")
-        st.write("✅ Retrieved incident history")
-        st.write("✅ Scored blast radius")
-        st.write("✅ Identified approvers")
-        st.write("✅ Suggested regression tests")
-        st.write("✅ Assembled assessment")
-
-        # TODO: replace with assessor.graph.run_assessment(change)
-        # For now use mock so the UI is reviewable from day one.
-        st.session_state["assessment"] = _mock_assessment(change)
-        status.update(label="✅ Assessment complete", state="complete")
+        if _HAS_API_KEY:
+            assessment = _run_real_assessment(change, status)
+            if assessment is not None:
+                st.session_state["assessment"] = assessment
+                status.update(label=f"✅ Assessment complete ({assessment.elapsed_seconds or 0:.1f}s)",
+                              state="complete")
+            else:
+                status.update(label="❌ Assessment failed — see error above", state="error")
+        else:
+            # Mock mode fallback — no API key configured.
+            status.write("⚠️ No API key set — running in mock mode")
+            for label in _NODE_LABELS.values():
+                status.write(f"🧪 {label} (mocked)")
+            st.session_state["assessment"] = _mock_assessment(change)
+            status.update(label="✅ Mock assessment complete", state="complete")
 
 
 # ─── Results view ──────────────────────────────────────────────────────────

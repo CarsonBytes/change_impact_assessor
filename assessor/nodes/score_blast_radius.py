@@ -1,67 +1,220 @@
 """
-Node: score_blast_radius   (TO IMPLEMENT — central node, ~2-3h)
+Node: score_blast_radius
 
-Given the change + retrieved context (ADRs + service catalog + incidents),
-produce:
-  - affected_systems[]    — with retrieval_confidence (objective from retrieval)
-                            and llm_confidence (the LLM's self-rating)
-  - risk_level            — one of RiskLevel enum values
-  - risk_drivers[]        — bullet-list of reasons supporting the risk level
+The central reasoning node. Takes the proposed change + retrieved evidence
+(ADRs, service catalog, postmortems) and produces:
+  - affected_systems[] with TWO unblended confidence signals
+  - risk_level
+  - risk_drivers[] grounded in retrieved context
 
-IMPLEMENTATION CHECKLIST (follow extract_targets.py as the pattern):
+DESIGN NOTES (read these before tweaking the prompt):
 
-  1. Define a Pydantic model `_ScoreOutput` matching the JSON the LLM produces:
-     {
-       "affected_systems": [
-         {"name": "...", "llm_confidence": 0.0-1.0, "reason": "..."}
-       ],
-       "risk_level": "LOW|MEDIUM|MEDIUM-HIGH|HIGH",
-       "risk_drivers": ["..."]
-     }
+1. The LLM produces `llm_confidence` per system — its self-rated certainty.
+   We compute `retrieval_confidence` separately from the similarity scores
+   of chunks that actually mention the system. Two signals stay unblended
+   in the schema; the UI shows both side by side. The reason is in the
+   README architecture-decisions section — combining them requires
+   justifying weights that we can't justify without learned data.
 
-  2. System prompt requirements:
-     - List affected systems using ONLY names from the provided service catalog
-     - For each, give llm_confidence (0-1) — its OWN certainty this is affected
-     - Risk level rules: HIGH if touches payment processing OR audit-log OR
-       references HKMA/PCI; MEDIUM-HIGH if 2+ services affected; MEDIUM
-       if 1 service; LOW for docs-only or config-only
-     - risk_drivers must reference specific evidence from retrieved context
-       (cite ADR-XXX or INC-YYYY-MM IDs that appear in the context)
+2. The LLM is told the catalog explicitly. Any system it names that isn't
+   in the catalog is silently dropped after the call — this is the
+   anti-hallucination guard, not a hint. We do not trust the LLM not to
+   invent service names.
 
-  3. User message:
-     - Change title, description, diff (first 4000 chars)
-     - Allowed service names (catalog)
-     - Retrieved dependency context (ADRs + service catalog hits)
-     - Retrieved incident context (postmortems)
+3. Risk-level heuristics are in the SYSTEM PROMPT, not in Python code.
+   Putting them in code would make them rigid; putting them in the prompt
+   lets the LLM weigh evidence (e.g. "touches payment processing AND has a
+   recent related incident" → HIGH rather than just MEDIUM-HIGH).
 
-  4. Compute retrieval_confidence for each affected system:
-     - For each named system, find chunks in dependency_context where doc_id
-       matches `service:{name}` OR the chunk's body mentions the system name
-     - retrieval_confidence = mean(score) of those chunks, 0.0 if none
-     - This is the SECOND confidence signal — kept separate from llm_confidence
-
-  5. Build sources[] for each AffectedSystem from the context chunks that
-     mention it. Each SourceCitation needs doc_id, doc_type, excerpt,
-     relevance_note (one line — why this source supports the claim).
-
-  6. Reject any system name not in the catalog (silently drop, do not crash).
-
-  7. Single retry on ValidationError — see extract_targets.py.
-
-RETURN:
-    {
-        "affected_systems": [AffectedSystem(...), ...],
-        "risk_level": <RiskLevel value as string>,
-        "risk_drivers": [...],
-    }
+4. Risk_drivers MUST cite specific document IDs from retrieved context.
+   This is the audit-trail property — every claim is traceable.
 """
 from __future__ import annotations
 
+from pydantic import BaseModel, Field, ValidationError
+
+from ..llm import call_llm_json
+from ..schema import AffectedSystem, SourceCitation
+
+
+SYSTEM_PROMPT = """You are a senior engineering reviewer scoring the blast radius of a proposed change.
+
+You will receive:
+  - The proposed change (title, description, diff)
+  - A list of allowed service names (the service catalog — DO NOT invent names outside this list)
+  - Retrieved ADRs and service-catalog entries (the "dependency context")
+  - Retrieved incident postmortems (the "incident context")
+
+Produce JSON conforming to this schema:
+
+{
+  "affected_systems": [
+    {
+      "name": "service-name",                  // MUST be from the allowed list
+      "llm_confidence": 0.0 - 1.0,             // your certainty this system is affected
+      "reason": "one-sentence rationale"
+    }
+  ],
+  "risk_level": "LOW" | "MEDIUM" | "MEDIUM-HIGH" | "HIGH",
+  "risk_drivers": [
+    "Specific bullet citing ADR-XXX or INC-YYYY-MM from the provided context",
+    "..."
+  ]
+}
+
+Risk-level guidance:
+  - HIGH: touches payment processing OR audit-log OR is referenced by an HKMA / PCI compliance scope,
+          OR a directly relevant incident occurred in the past 12 months
+  - MEDIUM-HIGH: affects 2+ services, or has compliance scope, or a related (not directly matching) incident exists
+  - MEDIUM: affects 1 service, no compliance scope, no historical incidents
+  - LOW: docs-only, comments, README, config-only
+
+Rules:
+  - Use ONLY service names from the allowed list. Names outside the list will be discarded.
+  - Each risk_driver MUST cite at least one document ID (ADR-XXX or INC-YYYY-MM) from the provided context.
+  - If retrieved context is empty or unhelpful, say so in a risk_driver rather than fabricating one.
+  - llm_confidence is YOUR certainty — be honest. 0.95+ for direct code change, 0.5-0.7 for transitive effects,
+    < 0.4 for speculative coupling.
+"""
+
+
+# ─── Pydantic shape we expect from the LLM ───────────────────────────────────
+
+class _ScoredSystem(BaseModel):
+    name: str
+    llm_confidence: float = Field(..., ge=0.0, le=1.0)
+    reason: str
+
+
+class _ScoreOutput(BaseModel):
+    affected_systems: list[_ScoredSystem] = Field(default_factory=list)
+    risk_level: str = "MEDIUM"
+    risk_drivers: list[str] = Field(default_factory=list)
+
+
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+
+def _retrieval_confidence_for(name: str, chunks: list[dict]) -> tuple[float, list[dict]]:
+    """
+    Compute the retrieval-confidence signal for `name` by averaging similarity
+    scores of chunks that either explicitly target the service or mention its
+    name in the body. Returns (confidence, supporting_chunks).
+
+    This is the OBJECTIVE signal — derived from similarity, not from the LLM.
+    """
+    name_lower = name.lower()
+    matched: list[dict] = []
+    for c in chunks:
+        body = (c.get("excerpt") or "").lower()
+        doc_id = (c.get("doc_id") or "").lower()
+        # Match on service: doc_id, or substring presence in the chunk body
+        if (
+            doc_id == f"service:{name_lower}"
+            or name_lower in body
+            or name_lower in (c.get("title") or "").lower()
+        ):
+            matched.append(c)
+    if not matched:
+        return 0.0, []
+    scores = [float(c.get("score") or 0.0) for c in matched]
+    return (sum(scores) / len(scores)), matched
+
+
+def _sources_from_chunks(chunks: list[dict], note: str = "") -> list[SourceCitation]:
+    """Convert retrieved chunks into SourceCitation models."""
+    out: list[SourceCitation] = []
+    for c in chunks[:3]:  # cap at 3 sources per system to keep output tidy
+        out.append(SourceCitation(
+            document_id=c.get("doc_id", "unknown"),
+            document_type=c.get("doc_type", "unknown"),
+            excerpt=(c.get("excerpt") or "")[:300],
+            relevance_note=note or "Retrieved as relevant context",
+        ))
+    return out
+
+
+def _build_user_message(state: dict, service_names: list[str]) -> str:
+    change = state["change"]
+    dep_ctx = state.get("dependency_context") or []
+    inc_ctx = state.get("incident_context") or []
+
+    def _fmt_chunks(chunks: list[dict], header: str) -> str:
+        if not chunks:
+            return f"## {header}\n(none retrieved)\n"
+        lines = [f"## {header}"]
+        for c in chunks:
+            lines.append(
+                f"- **{c.get('doc_id')}** ({c.get('doc_type')}) "
+                f"[similarity={c.get('score', 0):.2f}]"
+            )
+            lines.append(f"  {(c.get('excerpt') or '')[:400]}")
+        return "\n".join(lines) + "\n"
+
+    parts = [
+        f"## Proposed change",
+        f"**Title:** {change.title}",
+        f"**Description:** {change.description}",
+        "",
+        f"**Diff (first 4000 chars):**",
+        "```",
+        (change.diff or "(none provided)")[:4000],
+        "```",
+        "",
+        f"## Allowed service names (use ONLY these)",
+        ", ".join(service_names),
+        "",
+        _fmt_chunks(dep_ctx, "Dependency context (ADRs + service catalog)"),
+        _fmt_chunks(inc_ctx, "Incident context (postmortems)"),
+    ]
+    return "\n".join(parts)
+
+
+# ─── Node entry point ────────────────────────────────────────────────────────
 
 def score_blast_radius(state: dict, *, service_names: list[str], llm_fn=None) -> dict:
-    # TODO: implement following the checklist above
+    user_msg = _build_user_message(state, service_names)
+    catalog_set = set(service_names)
+
+    # One LLM call with single-retry-on-validation-failure
+    try:
+        raw = call_llm_json(SYSTEM_PROMPT, user_msg, llm_fn=llm_fn)
+        parsed = _ScoreOutput.model_validate(raw)
+    except (ValidationError, ValueError) as e:
+        retry_msg = (
+            user_msg
+            + f"\n\n## Previous attempt failed validation\n{e}\n"
+            + "Please respond again with valid JSON matching the schema."
+        )
+        raw = call_llm_json(SYSTEM_PROMPT, retry_msg, llm_fn=llm_fn)
+        parsed = _ScoreOutput.model_validate(raw)
+
+    # Build AffectedSystem objects, computing retrieval_confidence per system
+    # and dropping any hallucinated names not in the catalog.
+    dep_ctx = state.get("dependency_context") or []
+    affected: list[AffectedSystem] = []
+    for sys_ in parsed.affected_systems:
+        if sys_.name not in catalog_set:
+            continue  # silently drop hallucinated names
+        ret_conf, supporting = _retrieval_confidence_for(sys_.name, dep_ctx)
+        affected.append(AffectedSystem(
+            name=sys_.name,
+            retrieval_confidence=round(ret_conf, 3),
+            llm_confidence=round(sys_.llm_confidence, 3),
+            reason=sys_.reason,
+            sources=_sources_from_chunks(
+                supporting,
+                note=f"Mentions {sys_.name} in retrieved context",
+            ),
+        ))
+
+    # Sort descending by max of the two confidence signals (most-affected first)
+    affected.sort(
+        key=lambda s: max(s.retrieval_confidence, s.llm_confidence),
+        reverse=True,
+    )
+
     return {
-        "affected_systems": [],
-        "risk_level": "MEDIUM",
-        "risk_drivers": [],
+        "affected_systems": affected,
+        "risk_level": parsed.risk_level,
+        "risk_drivers": parsed.risk_drivers,
     }

@@ -1,0 +1,5 @@
+{
+  "title": "Add 'beneficiary_residence_status' field to HKMA daily transaction reports",
+  "description": "HKMA Circular B-2026-04 mandates a new beneficiary residence status field in the daily transaction reporting submission. Adds the field to the billing-api report generator and emits the new field into audit-log for traceability. No customer-facing changes.",
+  "diff": "diff --git a/billing-api/src/reporting/hkma_daily.py\n@@ -45,7 +45,12 @@\n def build_report_row(txn):\n     return {\n         'transaction_id': txn.id,\n         'amount_hkd': txn.amount_hkd,\n+        'beneficiary_residence_status': resolve_residence_status(txn.beneficiary_id),\n         'occurred_at': txn.occurred_at.isoformat(),\n     }\n\ndiff --git a/billing-api/src/audit_emit.py\n@@ -22,6 +22,7 @@\n def emit_hkma_report_generated(report_id, row_count):\n     emit_audit_event('hkma.report.generated',\n                       report_id=report_id,\n+                      schema_version='2026-04',\n                       row_count=row_count)\n"
+}

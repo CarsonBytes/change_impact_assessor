@@ -1,0 +1,16 @@
+{
+  "summary": "Migrate audit-log ClickHouse cluster from ap-east-1 to ap-southeast-3 with 24h dual-write window.",
+  "risk_level": "HIGH",
+  "must_mention_systems": ["audit-log", "billing-api", "payments-svc", "subscription-service", "kyc-service"],
+  "must_mention_incidents": ["INC-2025-09"],
+  "must_mention_adrs": ["ADR-021"],
+  "must_mention_approvers": ["Data Engineering Lead", "Compliance Officer", "Head of Engineering"],
+  "rollback_complexity": "COMPLEX",
+  "anti_patterns": [
+    "must not classify as MEDIUM — audit-log is critical infrastructure under HKMA SR-2024-08 scope",
+    "must not omit the dual-write hash-chain risk that INC-2025-09 surfaced",
+    "must not propose simple rollback — region migration with dual-write window is COMPLEX"
+  ],
+  "split": "dev",
+  "notes": "Critical infrastructure change with wide blast radius. Tests audit-log + all 4 producers must be recognized as affected. HKMA compliance scope drives Compliance Officer approval; HIGH risk + ≥3 services drives Head of Engineering approval."
+}
