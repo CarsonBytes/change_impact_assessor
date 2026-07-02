@@ -40,6 +40,7 @@ if _SECRETS.exists():
     except Exception:
         pass
 
+from assessor import cache
 from assessor.llm import active_backend_params
 from assessor.report import render_markdown
 from assessor.schema import (
@@ -106,6 +107,21 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("##### Backend")
 for label, value in active_backend_params():
     st.sidebar.markdown(f"**{label}**  \n{value}")
+
+# Previously analyzed (persistent disk cache)
+_cached_entries = cache.list_entries()
+if _cached_entries:
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("##### 📦 Previously analyzed")
+    for entry in _cached_entries[:10]:
+        risk_icon = RISK_COLOURS.get(entry["risk_level"], ("⚪", "#666"))[0]
+        label = f"{risk_icon} {entry['summary'][:40]}"
+        if st.sidebar.button(label, key=f"cache_{entry['key']}", use_container_width=True):
+            loaded = cache.load_by_key(entry["key"])
+            if loaded is not None:
+                st.session_state["assessment"] = loaded
+                st.session_state["active_pr"] = None
+                st.rerun()
 
 
 # ─── Main: input view ──────────────────────────────────────────────────────
@@ -265,9 +281,15 @@ if submitted:
     change = ChangeInput(title=title, description=description, diff=diff_text or None)
 
     with st.status("🔄 Assessing impact...", expanded=True) as status:
-        if _HAS_API_KEY:
+        cached = cache.load(change) if _HAS_API_KEY else None
+        if cached is not None:
+            status.write("📦 Identical change + backend already assessed — loaded from cache")
+            st.session_state["assessment"] = cached
+            status.update(label="✅ Loaded from cache", state="complete")
+        elif _HAS_API_KEY:
             assessment = _run_real_assessment(change, status)
             if assessment is not None:
+                cache.save(change, assessment)
                 st.session_state["assessment"] = assessment
                 status.update(label=f"✅ Assessment complete ({assessment.elapsed_seconds or 0:.1f}s)",
                               state="complete")

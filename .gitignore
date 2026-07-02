@@ -9,4 +9,5 @@ env/
 .env
 .streamlit/secrets.toml
 .index/
+.cache/
 eval/results.md
