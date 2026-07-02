@@ -1,0 +1,190 @@
+{
+  "summary": "Add 'beneficiary_residence_status' field to HKMA daily transaction reports",
+  "risk_level": "HIGH",
+  "risk_drivers": [
+    "Directly touches HKMA compliance scope as referenced in billing-api and ADR-021.",
+    "Changes the audit-log schema, which has a history of ingestion issues affecting billing-api and payments-svc (INC-2025-09).",
+    "Historical incidents show billing-api and payments-svc are prone to double-charge issues (INC-2023-09)."
+  ],
+  "affected_systems": [
+    {
+      "name": "billing-api",
+      "retrieval_confidence": 0.679,
+      "llm_confidence": 0.99,
+      "reason": "Direct code change in the HKMA report generator and audit event emitter.",
+      "sources": [
+        {
+          "document_id": "service:subscription-service",
+          "document_type": "service",
+          "excerpt": "Service: subscription-service\nTeam: Billing Engineering  Owner role: Billing Engineering Lead\nDepends on: billing-api, audit-log\nDepended on by: mobile-banking-bff\nCompliance scope: HKMA SR-2024-08\nRelated ADRs: ADR-014",
+          "relevance_note": "Mentions billing-api in retrieved context"
+        },
+        {
+          "document_id": "service:billing-api",
+          "document_type": "service",
+          "excerpt": "Service: billing-api\nTeam: Billing Engineering  Owner role: Billing Engineering Lead\nDepends on: payments-svc, audit-log, redis-cache, subscription-service\nDepended on by: mobile-banking-bff, kong-gateway\nCompliance scope: HKMA SR-2024-08\nRelated ADRs: ADR-014, ADR-021",
+          "relevance_note": "Mentions billing-api in retrieved context"
+        },
+        {
+          "document_id": "service:public-statements-api",
+          "document_type": "service",
+          "excerpt": "Service: public-statements-api\nTeam: Customer Platform  Owner role: Customer Platform Lead\nDepends on: billing-api, audit-log\nDepended on by: kong-gateway\nCompliance scope: HKMA\nRelated ADRs: —",
+          "relevance_note": "Mentions billing-api in retrieved context"
+        }
+      ]
+    },
+    {
+      "name": "audit-log",
+      "retrieval_confidence": 0.682,
+      "llm_confidence": 0.95,
+      "reason": "The change updates the audit event schema, impacting audit-log ingestion and compliance.",
+      "sources": [
+        {
+          "document_id": "service:subscription-service",
+          "document_type": "service",
+          "excerpt": "Service: subscription-service\nTeam: Billing Engineering  Owner role: Billing Engineering Lead\nDepends on: billing-api, audit-log\nDepended on by: mobile-banking-bff\nCompliance scope: HKMA SR-2024-08\nRelated ADRs: ADR-014",
+          "relevance_note": "Mentions audit-log in retrieved context"
+        },
+        {
+          "document_id": "service:billing-api",
+          "document_type": "service",
+          "excerpt": "Service: billing-api\nTeam: Billing Engineering  Owner role: Billing Engineering Lead\nDepends on: payments-svc, audit-log, redis-cache, subscription-service\nDepended on by: mobile-banking-bff, kong-gateway\nCompliance scope: HKMA SR-2024-08\nRelated ADRs: ADR-014, ADR-021",
+          "relevance_note": "Mentions audit-log in retrieved context"
+        },
+        {
+          "document_id": "service:public-statements-api",
+          "document_type": "service",
+          "excerpt": "Service: public-statements-api\nTeam: Customer Platform  Owner role: Customer Platform Lead\nDepends on: billing-api, audit-log\nDepended on by: kong-gateway\nCompliance scope: HKMA\nRelated ADRs: —",
+          "relevance_note": "Mentions audit-log in retrieved context"
+        }
+      ]
+    },
+    {
+      "name": "payments-svc",
+      "retrieval_confidence": 0.678,
+      "llm_confidence": 0.75,
+      "reason": "Billing-api depends on payments-svc for transaction data; a change to reporting logic may indirectly affect it.",
+      "sources": [
+        {
+          "document_id": "service:billing-api",
+          "document_type": "service",
+          "excerpt": "Service: billing-api\nTeam: Billing Engineering  Owner role: Billing Engineering Lead\nDepends on: payments-svc, audit-log, redis-cache, subscription-service\nDepended on by: mobile-banking-bff, kong-gateway\nCompliance scope: HKMA SR-2024-08\nRelated ADRs: ADR-014, ADR-021",
+          "relevance_note": "Mentions payments-svc in retrieved context"
+        },
+        {
+          "document_id": "service:payments-svc",
+          "document_type": "service",
+          "excerpt": "Service: payments-svc\nTeam: Payments Engineering  Owner role: Payments Engineering Lead\nDepends on: audit-log, redis-cache, external-fps-network\nDepended on by: billing-api, subscription-service\nCompliance scope: HKMA SR-2024-08, PCI DSS 4.0\nRelated ADRs: ADR-014, ADR-021",
+          "relevance_note": "Mentions payments-svc in retrieved context"
+        }
+      ]
+    },
+    {
+      "name": "subscription-service",
+      "retrieval_confidence": 0.678,
+      "llm_confidence": 0.7,
+      "reason": "Billing-api depends on subscription-service, and changes to reporting may have downstream effects.",
+      "sources": [
+        {
+          "document_id": "service:subscription-service",
+          "document_type": "service",
+          "excerpt": "Service: subscription-service\nTeam: Billing Engineering  Owner role: Billing Engineering Lead\nDepends on: billing-api, audit-log\nDepended on by: mobile-banking-bff\nCompliance scope: HKMA SR-2024-08\nRelated ADRs: ADR-014",
+          "relevance_note": "Mentions subscription-service in retrieved context"
+        },
+        {
+          "document_id": "service:billing-api",
+          "document_type": "service",
+          "excerpt": "Service: billing-api\nTeam: Billing Engineering  Owner role: Billing Engineering Lead\nDepends on: payments-svc, audit-log, redis-cache, subscription-service\nDepended on by: mobile-banking-bff, kong-gateway\nCompliance scope: HKMA SR-2024-08\nRelated ADRs: ADR-014, ADR-021",
+          "relevance_note": "Mentions subscription-service in retrieved context"
+        },
+        {
+          "document_id": "service:payments-svc",
+          "document_type": "service",
+          "excerpt": "Service: payments-svc\nTeam: Payments Engineering  Owner role: Payments Engineering Lead\nDepends on: audit-log, redis-cache, external-fps-network\nDepended on by: billing-api, subscription-service\nCompliance scope: HKMA SR-2024-08, PCI DSS 4.0\nRelated ADRs: ADR-014, ADR-021",
+          "relevance_note": "Mentions subscription-service in retrieved context"
+        }
+      ]
+    }
+  ],
+  "historical_incidents": [
+    {
+      "incident_id": "INC-2025-09",
+      "title": "INC-2025-09 — Audit log replay storm during region failover",
+      "date": "",
+      "affected_systems": [],
+      "relevance_note": "Retrieved as relevant context",
+      "excerpt": "# INC-2025-09 — Audit log replay storm during region failover\n\n- **Severity**: P2\n- **Date**: 2025-09-22\n- **Duration**: 1h 50m\n- **Customer impact**: No direct customer impact; ~6 hours of audit ingestion lag\n- **Affected systems**: `audit-log`, `kafka-cluster` (Kafka MSK), downstream consumers (`b"
+    },
+    {
+      "incident_id": "INC-2023-09",
+      "title": "INC-2023-09 — Duplicate charge from non-idempotent payment retry",
+      "date": "",
+      "affected_systems": [],
+      "relevance_note": "Retrieved as relevant context",
+      "excerpt": "# INC-2023-09 — Duplicate charge from non-idempotent payment retry\n\n- **Severity**: P1\n- **Date**: 2023-09-18\n- **Duration**: 3h 45m (detected 14:02 HKT; mitigated 17:47 HKT)\n- **Customer impact**: 412 customers double-charged for one-off purchases\n- **Affected systems**: `billing-api`, `payments-sv"
+    },
+    {
+      "incident_id": "INC-2025-02",
+      "title": "INC-2025-02 — Duplicate billing webhook delivery",
+      "date": "",
+      "affected_systems": [],
+      "relevance_note": "Retrieved as relevant context",
+      "excerpt": "# INC-2025-02 — Duplicate billing webhook delivery\n\n- **Severity**: P1\n- **Date**: 2025-02-14\n- **Duration**: 4h 12m (incident detected at 11:23 HKT; mitigated at 15:35 HKT)\n- **Customer impact**: 218 customers double-charged subscription renewals\n- **Affected systems**: `billing-api`, `subscription"
+    }
+  ],
+  "required_approvers": [
+    {
+      "role": "Billing Engineering Lead",
+      "reason": "Owns affected service `billing-api`"
+    },
+    {
+      "role": "Data Engineering Lead",
+      "reason": "Owns affected service `audit-log`"
+    },
+    {
+      "role": "Payments Engineering Lead",
+      "reason": "Owns affected service `payments-svc`"
+    },
+    {
+      "role": "Compliance Officer",
+      "reason": "Affected system(s) under regulated compliance scope: HKMA SR-2024-08, PCI DSS 4.0"
+    },
+    {
+      "role": "Head of Engineering",
+      "reason": "HIGH risk classification"
+    }
+  ],
+  "regression_tests": [
+    {
+      "target": "billing-api-unit",
+      "rationale": "Verifies the `resolve_residence_status` function correctly maps beneficiary IDs to residence statuses as required by the HKMA circular."
+    },
+    {
+      "target": "billing-api-integration",
+      "rationale": "Ensures the complete HKMA daily report generation flow, including the new beneficiary_residence_status field, works with downstream dependencies like payments-svc."
+    },
+    {
+      "target": "audit-log-replay",
+      "rationale": "Confirms that audit log events with the new 'schema_version' field and updated report data structure are correctly ingested and can be replayed for compliance."
+    },
+    {
+      "target": "payments-svc-contract",
+      "rationale": "Validates that the beneficiary data contract between payments-svc and billing-api supports the new reporting requirement without breaking changes."
+    },
+    {
+      "target": "hkma-reporting-e2e",
+      "rationale": "End-to-end test that the final submitted report file and associated audit event meet the full HKMA B-2026-04 specification, including the new mandatory field."
+    }
+  ],
+  "rollback_complexity": "MODERATE",
+  "rollback_notes": [
+    "Reversal involves removing a mandated field from the HKMA report generator, which could cause compliance issues if not coordinated with a regulatory grace period.",
+    "The field is also emitted to audit-log; removing the emission is trivial, but audit logs containing the field prior to rollback will remain in the system.",
+    "The change spans multiple services (billing-api, audit-log, payments-svc, subscription-service); rolling back requires coordinated deployment across these services.",
+    "No data migration is stated, so the schema change in reporting is likely reversible if the database migration is designed to be downgradable."
+  ],
+  "human_approved": true,
+  "elapsed_seconds": 48.87,
+  "provider": null,
+  "model": null
+}

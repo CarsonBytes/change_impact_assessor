@@ -1,0 +1,170 @@
+{
+  "summary": "Add Cantonese (zh-HK) localisation to mobile banking flows",
+  "risk_level": "MEDIUM-HIGH",
+  "risk_drivers": [
+    "Changes are within the HKMA compliance scope for KYC verification as noted in the mobile-banking-bff and kyc-service service entries.",
+    "The kyc-service has HKMA KYC compliance scope and is depended on by mobile-banking-bff; changes involve reviewed regulatory wording.",
+    "No directly relevant incident context provided; INC-2025-09, INC-2023-09, and INC-2025-02 relate to audit and billing, not localisation."
+  ],
+  "affected_systems": [
+    {
+      "name": "mobile-banking-bff",
+      "retrieval_confidence": 0.679,
+      "llm_confidence": 1.0,
+      "reason": "Direct code change to add Cantonese locale strings and update locale loader.",
+      "sources": [
+        {
+          "document_id": "service:mobile-banking-bff",
+          "document_type": "service",
+          "excerpt": "Service: mobile-banking-bff\nTeam: Mobile Engineering  Owner role: Mobile Engineering Lead\nDepends on: billing-api, kyc-service, subscription-service\nDepended on by: —\nCompliance scope: HKMA\nRelated ADRs: —",
+          "relevance_note": "Mentions mobile-banking-bff in retrieved context"
+        },
+        {
+          "document_id": "ADR-001",
+          "document_type": "adr",
+          "excerpt": "# ADR-001: API Gateway — Kong\n\n- **Status**: Accepted\n- **Date**: 2023-08-14\n- **Deciders**: Platform Engineering, Payments Lead, Security\n- **Tags**: gateway, traffic, security\n\n## Context\n\nFintora's customer-facing surface is split across four backend services\n(mobile-banking-bff, billing-api, kyc",
+          "relevance_note": "Mentions mobile-banking-bff in retrieved context"
+        },
+        {
+          "document_id": "service:kong-gateway",
+          "document_type": "service",
+          "excerpt": "Service: kong-gateway\nTeam: Platform Engineering  Owner role: Platform Engineering Lead\nDepends on: —\nDepended on by: mobile-banking-bff, billing-api, kyc-service, public-statements-api\nCompliance scope: HKMA TLS\nRelated ADRs: ADR-001",
+          "relevance_note": "Mentions mobile-banking-bff in retrieved context"
+        }
+      ]
+    },
+    {
+      "name": "kyc-service",
+      "retrieval_confidence": 0.696,
+      "llm_confidence": 0.5,
+      "reason": "KYC strings were reviewed by Compliance and this service is in the HKMA KYC scope, depended on by mobile-banking-bff.",
+      "sources": [
+        {
+          "document_id": "service:mobile-banking-bff",
+          "document_type": "service",
+          "excerpt": "Service: mobile-banking-bff\nTeam: Mobile Engineering  Owner role: Mobile Engineering Lead\nDepends on: billing-api, kyc-service, subscription-service\nDepended on by: —\nCompliance scope: HKMA\nRelated ADRs: —",
+          "relevance_note": "Mentions kyc-service in retrieved context"
+        },
+        {
+          "document_id": "ADR-001",
+          "document_type": "adr",
+          "excerpt": "# ADR-001: API Gateway — Kong\n\n- **Status**: Accepted\n- **Date**: 2023-08-14\n- **Deciders**: Platform Engineering, Payments Lead, Security\n- **Tags**: gateway, traffic, security\n\n## Context\n\nFintora's customer-facing surface is split across four backend services\n(mobile-banking-bff, billing-api, kyc",
+          "relevance_note": "Mentions kyc-service in retrieved context"
+        },
+        {
+          "document_id": "service:kong-gateway",
+          "document_type": "service",
+          "excerpt": "Service: kong-gateway\nTeam: Platform Engineering  Owner role: Platform Engineering Lead\nDepends on: —\nDepended on by: mobile-banking-bff, billing-api, kyc-service, public-statements-api\nCompliance scope: HKMA TLS\nRelated ADRs: ADR-001",
+          "relevance_note": "Mentions kyc-service in retrieved context"
+        }
+      ]
+    },
+    {
+      "name": "kong-gateway",
+      "retrieval_confidence": 0.663,
+      "llm_confidence": 0.3,
+      "reason": "As the gateway for mobile-banking-bff per ADR-001 and service catalog, a locale change may affect request routing or headers.",
+      "sources": [
+        {
+          "document_id": "service:kong-gateway",
+          "document_type": "service",
+          "excerpt": "Service: kong-gateway\nTeam: Platform Engineering  Owner role: Platform Engineering Lead\nDepends on: —\nDepended on by: mobile-banking-bff, billing-api, kyc-service, public-statements-api\nCompliance scope: HKMA TLS\nRelated ADRs: ADR-001",
+          "relevance_note": "Mentions kong-gateway in retrieved context"
+        },
+        {
+          "document_id": "service:kyc-service",
+          "document_type": "service",
+          "excerpt": "Service: kyc-service\nTeam: Compliance Engineering  Owner role: Compliance Engineering Lead\nDepends on: audit-log, external-id-verification\nDepended on by: mobile-banking-bff, kong-gateway\nCompliance scope: HKMA KYC, PDPO\nRelated ADRs: —",
+          "relevance_note": "Mentions kong-gateway in retrieved context"
+        },
+        {
+          "document_id": "service:billing-api",
+          "document_type": "service",
+          "excerpt": "Service: billing-api\nTeam: Billing Engineering  Owner role: Billing Engineering Lead\nDepends on: payments-svc, audit-log, redis-cache, subscription-service\nDepended on by: mobile-banking-bff, kong-gateway\nCompliance scope: HKMA SR-2024-08\nRelated ADRs: ADR-014, ADR-021",
+          "relevance_note": "Mentions kong-gateway in retrieved context"
+        }
+      ]
+    }
+  ],
+  "historical_incidents": [
+    {
+      "incident_id": "INC-2025-09",
+      "title": "INC-2025-09 — Audit log replay storm during region failover",
+      "date": "",
+      "affected_systems": [],
+      "relevance_note": "Retrieved as relevant context",
+      "excerpt": "# INC-2025-09 — Audit log replay storm during region failover\n\n- **Severity**: P2\n- **Date**: 2025-09-22\n- **Duration**: 1h 50m\n- **Customer impact**: No direct customer impact; ~6 hours of audit ingestion lag\n- **Affected systems**: `audit-log`, `kafka-cluster` (Kafka MSK), downstream consumers (`b"
+    },
+    {
+      "incident_id": "INC-2023-09",
+      "title": "INC-2023-09 — Duplicate charge from non-idempotent payment retry",
+      "date": "",
+      "affected_systems": [],
+      "relevance_note": "Retrieved as relevant context",
+      "excerpt": "# INC-2023-09 — Duplicate charge from non-idempotent payment retry\n\n- **Severity**: P1\n- **Date**: 2023-09-18\n- **Duration**: 3h 45m (detected 14:02 HKT; mitigated 17:47 HKT)\n- **Customer impact**: 412 customers double-charged for one-off purchases\n- **Affected systems**: `billing-api`, `payments-sv"
+    },
+    {
+      "incident_id": "INC-2025-02",
+      "title": "INC-2025-02 — Duplicate billing webhook delivery",
+      "date": "",
+      "affected_systems": [],
+      "relevance_note": "Retrieved as relevant context",
+      "excerpt": "# INC-2025-02 — Duplicate billing webhook delivery\n\n- **Severity**: P1\n- **Date**: 2025-02-14\n- **Duration**: 4h 12m (incident detected at 11:23 HKT; mitigated at 15:35 HKT)\n- **Customer impact**: 218 customers double-charged subscription renewals\n- **Affected systems**: `billing-api`, `subscription"
+    }
+  ],
+  "required_approvers": [
+    {
+      "role": "Mobile Engineering Lead",
+      "reason": "Owns affected service `mobile-banking-bff`"
+    },
+    {
+      "role": "Compliance Engineering Lead",
+      "reason": "Owns affected service `kyc-service`"
+    },
+    {
+      "role": "Platform Engineering Lead",
+      "reason": "Owns affected service `kong-gateway`"
+    },
+    {
+      "role": "Compliance Officer",
+      "reason": "Affected system(s) under regulated compliance scope: HKMA, HKMA KYC, HKMA TLS, PDPO"
+    },
+    {
+      "role": "Head of Engineering",
+      "reason": "Wide blast radius (3 services affected)"
+    }
+  ],
+  "regression_tests": [
+    {
+      "target": "mobile-banking-bff-unit",
+      "rationale": "Verifies the updated locale loader correctly supports 'zh-HK' and does not break existing locale resolution for 'en' or 'zh-CN'."
+    },
+    {
+      "target": "mobile-banking-bff-integration",
+      "rationale": "Ensures the BFF correctly serves the new Cantonese strings for transaction, statements, and KYC screens when the 'zh-HK' locale is requested."
+    },
+    {
+      "target": "kyc-service-contract",
+      "rationale": "Validates that the KYC service's API for compliance-related text integrates correctly with the BFF when using the new 'zh-HK' locale key."
+    },
+    {
+      "target": "kong-gateway-smoke",
+      "rationale": "Confirms that gateway request routing and header handling (e.g., Accept-Language) still function correctly with the newly added locale."
+    },
+    {
+      "target": "mobile-banking-e2e",
+      "rationale": "End-to-end test that a user flow (e.g., viewing transaction history) successfully renders in Cantonese without breaking core functionality."
+    }
+  ],
+  "rollback_complexity": "TRIVIAL",
+  "rollback_notes": [
+    "Reverting is a code-only change, as the change consists purely of adding string resources.",
+    "Removing the zh-HK localization strings will not affect data, schemas, or core functionality.",
+    "No feature flags or external dependencies were introduced that require coordinated removal.",
+    "Rollback may require a redeploy of the mobile-banking-bff and kyc-service, but this is a standard procedure."
+  ],
+  "human_approved": true,
+  "elapsed_seconds": 53.95,
+  "provider": null,
+  "model": null
+}
