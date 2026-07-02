@@ -77,6 +77,8 @@ if "active_pr" not in st.session_state:
     st.session_state["active_pr"] = None
 if "assessment" not in st.session_state:
     st.session_state["assessment"] = None
+if "assessment_from_cache" not in st.session_state:
+    st.session_state["assessment_from_cache"] = False
 if "pending_thread_id" not in st.session_state:
     st.session_state["pending_thread_id"] = None
 if "pending_change" not in st.session_state:
@@ -102,6 +104,14 @@ def _get_graph():
     return build_graph(checkpointer=st.session_state["checkpointer"])
 
 
+def _load_sample_pr(pr_name: str) -> ChangeInput | None:
+    pr_path = SAMPLE_PRS_DIR / pr_name / "pr.json"
+    if not pr_path.exists():
+        return None
+    data = json.loads(pr_path.read_text(encoding="utf-8"))
+    return ChangeInput(**data)
+
+
 # ─── Sidebar ────────────────────────────────────────────────────────────────
 
 st.sidebar.title("🔍 Change Impact Assessor")
@@ -119,8 +129,15 @@ for pr_dir in sample_dirs:
         use_container_width=True,
     ):
         st.session_state["active_pr"] = pr_dir.name
-        st.session_state["assessment"] = None
         _clear_pending()
+        # Auto-load an existing cached result for this exact PR + backend —
+        # no need to click Assess Impact just to see a run that already
+        # happened. Nothing is computed here; a cache miss just clears the
+        # old result and falls through to the pre-filled form, same as before.
+        sample_change = _load_sample_pr(pr_dir.name)
+        cached = cache.load(sample_change) if sample_change else None
+        st.session_state["assessment"] = cached
+        st.session_state["assessment_from_cache"] = cached is not None
         st.rerun()
 
 # Paste your own
@@ -145,20 +162,13 @@ if _cached_entries:
             loaded = cache.load_by_key(entry["key"])
             if loaded is not None:
                 st.session_state["assessment"] = loaded
+                st.session_state["assessment_from_cache"] = True
                 st.session_state["active_pr"] = None
                 _clear_pending()
                 st.rerun()
 
 
 # ─── Main: input view ──────────────────────────────────────────────────────
-
-def _load_sample_pr(pr_name: str) -> ChangeInput | None:
-    pr_path = SAMPLE_PRS_DIR / pr_name / "pr.json"
-    if not pr_path.exists():
-        return None
-    data = json.loads(pr_path.read_text(encoding="utf-8"))
-    return ChangeInput(**data)
-
 
 # Pre-fill from sample if one is active
 prefill: ChangeInput | None = None
@@ -320,6 +330,7 @@ if submitted:
         if cached is not None:
             status.write("📦 Identical change + backend already assessed — loaded from cache")
             st.session_state["assessment"] = cached
+            st.session_state["assessment_from_cache"] = True
             status.update(label="✅ Loaded from cache", state="complete")
         elif _HAS_API_KEY:
             graph = _get_graph()
@@ -328,6 +339,7 @@ if submitted:
             assessment, paused = _run_real_assessment(change, status, graph, config)
             if assessment is not None:
                 st.session_state["assessment"] = assessment
+                st.session_state["assessment_from_cache"] = False
                 if paused:
                     st.session_state["pending_thread_id"] = thread_id
                     st.session_state["pending_change"] = change
@@ -344,6 +356,7 @@ if submitted:
             for label in _NODE_LABELS.values():
                 status.write(f"🧪 {label} (mocked)")
             st.session_state["assessment"] = _mock_assessment(change)
+            st.session_state["assessment_from_cache"] = False
             status.update(label="✅ Mock assessment complete", state="complete")
 
 
@@ -370,6 +383,7 @@ if assessment is not None:
                 approved.elapsed_seconds = assessment.elapsed_seconds
                 cache.save(st.session_state["pending_change"], approved)
                 st.session_state["assessment"] = approved
+                st.session_state["assessment_from_cache"] = False
                 _clear_pending()
                 st.rerun()
         if gate_cols[1].button("Discard"):
@@ -380,6 +394,8 @@ if assessment is not None:
     # Hero card
     icon, _colour = RISK_COLOURS.get(assessment.risk_level.value, ("⚪", "#666"))
     st.markdown("---")
+    if st.session_state.get("assessment_from_cache"):
+        st.caption("📦 Loaded from a previous run — not recomputed.")
     st.markdown(
         f"""
         ### 📊 Risk Level: {icon} **{assessment.risk_level.value}**

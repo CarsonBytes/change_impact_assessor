@@ -62,7 +62,7 @@ rather than adding new capability:
 - Unit tests for the anti-hallucination guarantees in `extract_targets` (catalog allow-list) and `assemble` (incident-ID invariant, rollback fallback-not-retry behaviour)
 - Deduped the retry-on-validation-failure pattern, hand-copied into 3 nodes, into `llm.call_llm_json_validated`
 - GitHub Actions CI running the pytest suite + `eval.validate_corpus` on every push/PR — `eval/validate_corpus.py`'s own docstring claimed this before it actually existed
-- Persistent disk cache for LLM-generated assessments (`assessor/cache.py`) — keyed on `(title, description, diff, provider, model)`; a sidebar lists past runs for one-click reload without re-running the graph
+- Persistent disk cache for LLM-generated assessments (`assessor/cache.py`) — keyed on `(title, description, diff, provider, model)`; a sidebar lists past runs for one-click reload without re-running the graph. Selecting a sample PR that's already cached shows the result immediately — no need to click Assess Impact just to see a run that already happened; a `📦 Loaded from a previous run` caption marks it so it's never mistaken for a fresh call. A cache miss just pre-fills the form as before.
 - Deployed via Docker SDK on Hugging Face Spaces (native Streamlit SDK isn't offered by Spaces' current create-flow; Docker running `streamlit run app.py` is the equivalent) — see `Dockerfile`
 - Eval harness scoring gap closed — `risk_level` and `rollback_complexity` sat in every fixture as ground truth but were never scored; see **Eval** below
 
