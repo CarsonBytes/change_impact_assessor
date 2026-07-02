@@ -52,6 +52,20 @@ This project is built in phases. The current state and what remains are below.
 
 Run `python -m eval.run_eval --split test` against the held-out set to populate `eval/results.md`.
 
+### Phase 1.5 — Hardening (complete)
+
+The reasoning nodes shipped in Phase 1 had no direct test coverage — only
+schema shape and corpus consistency were tested. This phase closes that gap
+rather than adding new capability:
+
+- Unit tests for `identify_approvers` (all 3 rules, dedup, catalog allow-list) — the node backing the "defensible, not plausible" approver claim had zero tests before this
+- Unit tests for the anti-hallucination guarantees in `extract_targets` (catalog allow-list) and `assemble` (incident-ID invariant, rollback fallback-not-retry behaviour)
+- Deduped the retry-on-validation-failure pattern, hand-copied into 3 nodes, into `llm.call_llm_json_validated`
+- GitHub Actions CI running the pytest suite + `eval.validate_corpus` on every push/PR — `eval/validate_corpus.py`'s own docstring claimed this before it actually existed
+- Persistent disk cache for LLM-generated assessments (`assessor/cache.py`) — keyed on `(title, description, diff, provider, model)`; a sidebar lists past runs for one-click reload without re-running the graph
+- Deployed via Docker SDK on Hugging Face Spaces (native Streamlit SDK isn't offered by Spaces' current create-flow; Docker running `streamlit run app.py` is the equivalent) — see `Dockerfile`
+- Eval harness scoring gap closed — `risk_level` and `rollback_complexity` sat in every fixture as ground truth but were never scored; see **Eval** below
+
 ### Phase 2 — Optional extensions (not started)
 
 - Human-in-the-loop interrupt at HIGH risk (LangGraph `interrupt` primitive)
@@ -135,9 +149,10 @@ What is reused from the companion projects: the LlamaIndex framework, the BGE-sm
 ## Known limitations
 
 - The corpus is synthetic. Real production data is unavailable for IP/confidentiality reasons.
-- The eval set is small — five sample PRs (three dev, two held-out test).
-- Pydantic validation retry is single-shot. If invalid JSON returns twice, the UI surfaces an error and a manual retry button.
-- The UI runs in mock mode until Phase 1 is complete.
+- The eval set is small — five sample PRs (three dev, two held-out test). See **Eval → Limitations** for what this does and doesn't prove.
+- Pydantic validation retry is single-shot, centralised in `llm.call_llm_json_validated`. If invalid JSON returns twice, the caller gets the exception (the UI surfaces an error); the `assemble` node's rollback sub-call is the one exception — it degrades to a safe default instead of retrying (see `assessor/nodes/assemble.py`).
+- No auth or rate-limiting on the public demo — it spends real API credits per request. Fine for a portfolio demo, not fine for anything beyond it.
+- The persistent cache (`assessor/cache.py`) is local-disk. On Hugging Face Spaces' free tier it survives a simple restart but not a rebuild (triggered by every push) — nothing depends on it surviving, but don't expect a warm cache after a deploy.
 
 ---
 
@@ -188,13 +203,16 @@ python -m eval.run_eval --split test   # held-out test set
 | `assessor/graph.py` | LangGraph state machine |
 | `assessor/nodes/` | 7 node functions — each `(state) → partial state update` |
 | `assessor/report.py` | Markdown report renderer |
+| `assessor/cache.py` | Persistent disk cache for LLM-generated assessments |
 | `data/adrs/` | Fintora ADRs |
 | `data/postmortems/` | Fintora postmortems |
 | `data/service_catalog.json` | Services with owners, dependencies, compliance scope |
 | `data/sample_prs/` | Sample PRs with expected assessments for eval |
 | `eval/validate_corpus.py` | Cross-reference consistency check |
-| `eval/run_eval.py` | Recall-prioritised evaluation |
+| `eval/run_eval.py` | Recall + precision + classification-accuracy evaluation |
 | `tests/` | pytest suite — runs without API keys |
+| `Dockerfile` | Hugging Face Spaces deployment (Docker SDK, runs `streamlit run app.py`) |
+| `.github/workflows/ci.yml` | pytest + corpus validation on every push/PR |
 
 ---
 
@@ -209,6 +227,8 @@ python -m eval.run_eval --split test   # held-out test set
 | LLM | Anthropic Claude Sonnet 4.5 (default), or any OpenAI-compatible endpoint |
 | UI | Streamlit |
 | Tests | pytest with mocked LLM clients |
+| Deployment | Docker SDK on Hugging Face Spaces (Spaces' create-flow doesn't offer a native Streamlit SDK; Docker running `streamlit run app.py` is the equivalent) |
+| CI | GitHub Actions — pytest + corpus validation on push/PR |
 
 ---
 
@@ -219,4 +239,23 @@ python -m eval.run_eval --split dev    # development set
 python -m eval.run_eval --split test   # held-out test set (Phase 1)
 ```
 
-Recall-prioritised: missing an affected system is the failure mode that matters in change management. Results written to `eval/results.md`.
+Each sample PR is scored on three genuinely different failure modes, reported separately rather than collapsed into one number:
+
+| Dimension | What it catches | Fixture field |
+|---|---|---|
+| Recall (system / incident / approver / ADR) | A required fact never got surfaced | `must_mention_*` |
+| Precision (system) | A system is claimed affected that plainly isn't | `must_not_mention_systems` |
+| Classification accuracy (risk level / rollback complexity) | The headline judgment is wrong even though recall is perfect | `risk_level`, `rollback_complexity` |
+
+`overall` in `eval/results.md` is an **unweighted mean of all 7 dimensions** — a sorting convenience for "did this get better or worse," not a validated composite metric. Read the per-dimension columns when deciding whether a prompt or node change actually helped.
+
+### Limitations
+
+This eval harness is a reasonable starting point for a solo-authored demo, not a rigorous measurement instrument. Specifically:
+
+- **Fixtures are single-annotator.** `expected.json` for each sample PR was written by the same person who wrote the code being evaluated, with no independent review and no inter-annotator agreement measurement. "Must mention" and "must not mention" are judgment calls, not ground truth handed down from a labeling process.
+- **n = 5** (3 dev, 2 held-out test). Nowhere near enough for statistical confidence in any single number.
+- **No confidence calibration.** `llm_confidence` (the model's self-rated certainty per affected system) is never checked against actual accuracy — with 5 cases there isn't enough data to bin a calibration curve meaningfully.
+- **The 7-way equal weighting is not business-validated.** Whether a missed Compliance Officer approval (a compliance failure) should cost more than an imprecise rollback note is a real question this harness doesn't answer — it treats them identically. In a real deployment, weighting and what counts as "must mention" should come from whoever owns the cost of getting it wrong (compliance/security for approver recall, SRE for incident relevance), not from the person who wrote the retrieval code.
+
+None of these are fixed by writing more scoring code — they need more annotators, more cases, and a domain owner, which is out of scope for a demo project authored by one person.

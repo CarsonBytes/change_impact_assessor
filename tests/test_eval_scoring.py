@@ -1,18 +1,37 @@
-"""Unit tests for the eval harness's scoring function — recall and precision."""
+"""
+Unit tests for the eval harness's scoring function — recall, precision,
+and classification accuracy (risk_level / rollback_complexity).
+"""
 from __future__ import annotations
 
 from eval.run_eval import _score_case
-from assessor.schema import AffectedSystem, ImpactAssessment, RiskLevel, RollbackComplexity
+from assessor.schema import (
+    AffectedSystem, ImpactAssessment, RiskLevel, RollbackComplexity, SourceCitation,
+)
 
 
-def _assessment(system_names: list[str]) -> ImpactAssessment:
+def _assessment(
+    system_names: list[str],
+    *,
+    risk_level: RiskLevel = RiskLevel.MEDIUM,
+    rollback_complexity: RollbackComplexity = RollbackComplexity.TRIVIAL,
+    risk_drivers: list[str] | None = None,
+    adr_sources: dict[str, list[str]] | None = None,
+) -> ImpactAssessment:
+    adr_sources = adr_sources or {}
     return ImpactAssessment(
-        summary="s", risk_level=RiskLevel.MEDIUM, risk_drivers=[],
+        summary="s", risk_level=risk_level, risk_drivers=risk_drivers or [],
         affected_systems=[
-            AffectedSystem(name=n, retrieval_confidence=0.5, llm_confidence=0.5, reason="r")
+            AffectedSystem(
+                name=n, retrieval_confidence=0.5, llm_confidence=0.5, reason="r",
+                sources=[
+                    SourceCitation(document_id=adr_id, document_type="adr", excerpt="...")
+                    for adr_id in adr_sources.get(n, [])
+                ],
+            )
             for n in system_names
         ],
-        rollback_complexity=RollbackComplexity.TRIVIAL,
+        rollback_complexity=rollback_complexity,
     )
 
 
@@ -55,4 +74,50 @@ class TestPrecision:
         result = _score_case(actual, expected)
         assert result["system_recall"] == 1.0
         assert result["system_precision"] == 0.0
+        assert result["overall"] < 1.0
+
+
+class TestAdrRecall:
+    def test_adr_cited_in_risk_driver_counts(self):
+        actual = _assessment(["a"], risk_drivers=["Touches payment path per ADR-014"])
+        assert _score_case(actual, {"must_mention_adrs": ["ADR-014"]})["adr_recall"] == 1.0
+
+    def test_adr_cited_as_source_counts(self):
+        actual = _assessment(["a"], adr_sources={"a": ["ADR-014"]})
+        assert _score_case(actual, {"must_mention_adrs": ["ADR-014"]})["adr_recall"] == 1.0
+
+    def test_uncited_adr_is_penalized(self):
+        actual = _assessment(["a"])
+        assert _score_case(actual, {"must_mention_adrs": ["ADR-014"]})["adr_recall"] == 0.0
+
+
+class TestClassificationAccuracy:
+    def test_matching_risk_level_is_correct(self):
+        actual = _assessment(["a"], risk_level=RiskLevel.HIGH)
+        assert _score_case(actual, {"risk_level": "HIGH"})["risk_level_correct"] is True
+
+    def test_mismatched_risk_level_is_incorrect(self):
+        actual = _assessment(["a"], risk_level=RiskLevel.MEDIUM)
+        assert _score_case(actual, {"risk_level": "HIGH"})["risk_level_correct"] is False
+
+    def test_matching_rollback_complexity_is_correct(self):
+        actual = _assessment(["a"], rollback_complexity=RollbackComplexity.COMPLEX)
+        result = _score_case(actual, {"rollback_complexity": "COMPLEX"})
+        assert result["rollback_complexity_correct"] is True
+
+    def test_mismatched_rollback_complexity_is_incorrect(self):
+        actual = _assessment(["a"], rollback_complexity=RollbackComplexity.TRIVIAL)
+        result = _score_case(actual, {"rollback_complexity": "COMPLEX"})
+        assert result["rollback_complexity_correct"] is False
+
+    def test_wrong_risk_classification_drags_down_overall_despite_perfect_recall(self):
+        # The gap this closes: risk_level sat in every fixture as ground
+        # truth but was never scored, so misclassifying HIGH as MEDIUM
+        # — the exact failure mode several fixtures' anti_patterns warn
+        # about — didn't cost anything.
+        actual = _assessment(["a"], risk_level=RiskLevel.MEDIUM)
+        expected = {"must_mention_systems": ["a"], "risk_level": "HIGH"}
+        result = _score_case(actual, expected)
+        assert result["system_recall"] == 1.0
+        assert result["risk_level_correct"] is False
         assert result["overall"] < 1.0
