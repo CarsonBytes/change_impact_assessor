@@ -1,3 +1,13 @@
+---
+title: Change Impact Assessor
+emoji: 🔍
+colorFrom: indigo
+colorTo: blue
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Change Impact Assessor
 
 Produces a structured, retrieval-grounded impact assessment for a proposed code or infrastructure change.
