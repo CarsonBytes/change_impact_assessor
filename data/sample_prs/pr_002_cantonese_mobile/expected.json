@@ -2,6 +2,7 @@
   "summary": "Add Cantonese localisation to mobile-banking-bff (KYC, statements, transactions).",
   "risk_level": "MEDIUM",
   "must_mention_systems": ["mobile-banking-bff", "kyc-service"],
+  "must_not_mention_systems": ["billing-api", "payments-svc"],
   "must_mention_incidents": [],
   "must_mention_adrs": [],
   "must_mention_approvers": ["Mobile Engineering Lead", "Compliance Officer"],

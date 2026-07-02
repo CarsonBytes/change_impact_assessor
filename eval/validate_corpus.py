@@ -111,6 +111,13 @@ def main() -> int:
             if s not in service_names:
                 errors.append(f"sample_prs/{pr_name}/expected.json: "
                               f"references service '{s}' not in service_catalog.json")
+        for s in exp.get("must_not_mention_systems", []):
+            if s not in service_names:
+                errors.append(f"sample_prs/{pr_name}/expected.json: "
+                              f"must_not_mention_systems references '{s}' not in service_catalog.json")
+            if s in exp.get("must_mention_systems", []):
+                errors.append(f"sample_prs/{pr_name}/expected.json: "
+                              f"'{s}' is in both must_mention_systems and must_not_mention_systems")
         for adr in exp.get("must_mention_adrs", []):
             if adr not in adr_ids:
                 errors.append(f"sample_prs/{pr_name}/expected.json: "

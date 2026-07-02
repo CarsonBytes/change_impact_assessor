@@ -2,6 +2,7 @@
   "summary": "Migrate audit-log ClickHouse cluster from ap-east-1 to ap-southeast-3 with 24h dual-write window.",
   "risk_level": "HIGH",
   "must_mention_systems": ["audit-log", "billing-api", "payments-svc", "subscription-service", "kyc-service"],
+  "must_not_mention_systems": ["kong-gateway", "redis-cache"],
   "must_mention_incidents": ["INC-2025-09"],
   "must_mention_adrs": ["ADR-021"],
   "must_mention_approvers": ["Data Engineering Lead", "Compliance Officer", "Head of Engineering"],

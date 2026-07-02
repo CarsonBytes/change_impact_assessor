@@ -2,6 +2,7 @@
   "summary": "Add X-Request-Id idempotency to billing subscription-renewal webhook handler per ADR-014.",
   "risk_level": "MEDIUM-HIGH",
   "must_mention_systems": ["billing-api", "subscription-service", "audit-log", "redis-cache"],
+  "must_not_mention_systems": ["kyc-service", "kong-gateway"],
   "must_mention_incidents": ["INC-2025-02"],
   "must_mention_adrs": ["ADR-014"],
   "must_mention_approvers": ["Billing Engineering Lead", "Compliance Officer"],

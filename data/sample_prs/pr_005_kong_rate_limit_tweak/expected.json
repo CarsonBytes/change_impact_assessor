@@ -2,6 +2,7 @@
   "summary": "Tighten Kong rate-limit on public-statements endpoints from 60/min to 30/min per IP.",
   "risk_level": "MEDIUM",
   "must_mention_systems": ["kong-gateway", "public-statements-api"],
+  "must_not_mention_systems": ["billing-api", "payments-svc"],
   "must_mention_incidents": [],
   "must_mention_adrs": ["ADR-001"],
   "must_mention_approvers": ["Platform Engineering Lead", "Customer Platform Lead"],

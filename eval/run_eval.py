@@ -32,7 +32,13 @@ def _load_pr(pr_dir: Path) -> tuple[ChangeInput, dict]:
 
 
 def _score_case(actual, expected: dict) -> dict:
-    """Recall-prioritized scoring — missing required mentions is the failure mode."""
+    """
+    Recall-prioritized scoring — missing a required mention is the primary
+    failure mode. System precision guards the other direction: claiming a
+    service is affected when the fixture asserts it plainly isn't (see
+    must_not_mention_systems) — without it, a run that over-claims every
+    service in the catalog would score identically to a precise one.
+    """
     affected_names = {s.name for s in actual.affected_systems}
     incident_ids = {i.incident_id for i in actual.historical_incidents}
     approver_roles = {a.role for a in actual.required_approvers}
@@ -43,15 +49,26 @@ def _score_case(actual, expected: dict) -> dict:
         hit = sum(1 for r in required if r in got)
         return hit / len(required)
 
+    def _precision(forbidden, got):
+        if not forbidden:
+            return 1.0, []
+        violations = [f for f in forbidden if f in got]
+        return 1.0 - (len(violations) / len(forbidden)), violations
+
     sys_recall = _recall(expected.get("must_mention_systems", []), affected_names)
     inc_recall = _recall(expected.get("must_mention_incidents", []), incident_ids)
     app_recall = _recall(expected.get("must_mention_approvers", []), approver_roles)
+    sys_precision, false_positives = _precision(
+        expected.get("must_not_mention_systems", []), affected_names,
+    )
 
     return {
         "system_recall": sys_recall,
         "incident_recall": inc_recall,
         "approver_recall": app_recall,
-        "overall": (sys_recall + inc_recall + app_recall) / 3,
+        "system_precision": sys_precision,
+        "false_positives": false_positives,
+        "overall": (sys_recall + inc_recall + app_recall + sys_precision) / 4,
     }
 
 
@@ -89,19 +106,20 @@ def main():
     # Write results.md
     lines = ["# Eval results\n"]
     lines.append(f"Split: **{args.split}**\n")
-    lines.append("| Case | System recall | Incident recall | Approver recall | Overall |")
-    lines.append("|---|---|---|---|---|")
+    lines.append("| Case | System recall | Incident recall | Approver recall | System precision | Overall |")
+    lines.append("|---|---|---|---|---|---|")
     for r in rows:
         if "error" in r:
-            lines.append(f"| {r['case']} | ERROR: {r['error']} | | | |")
+            lines.append(f"| {r['case']} | ERROR: {r['error']} | | | | |")
         else:
+            fp_note = f" ({', '.join(r['false_positives'])})" if r["false_positives"] else ""
             lines.append(
                 f"| {r['case']} | {r['system_recall']:.2f} | {r['incident_recall']:.2f} | "
-                f"{r['approver_recall']:.2f} | {r['overall']:.2f} |"
+                f"{r['approver_recall']:.2f} | {r['system_precision']:.2f}{fp_note} | {r['overall']:.2f} |"
             )
     overall = [r["overall"] for r in rows if "overall" in r]
     if overall:
-        lines.append(f"\n**Mean overall recall: {sum(overall)/len(overall):.2f}**")
+        lines.append(f"\n**Mean overall score: {sum(overall)/len(overall):.2f}**")
     RESULTS.write_text("\n".join(lines), encoding="utf-8")
     print(f"\nWrote {RESULTS}")
 
