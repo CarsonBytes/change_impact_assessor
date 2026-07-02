@@ -26,6 +26,10 @@ DATA = ROOT / "data" / "sample_prs"
 RESULTS = ROOT / "eval" / "results.md"
 
 _ADR_REF_RE = re.compile(r"\bADR-\d{3}\b")
+# Ordinal, not a severity weight: RiskLevel already has a real order in the
+# domain (LOW < MEDIUM < MEDIUM-HIGH < HIGH). Used only to report which
+# *direction* a misclassification went, never to compute a magic penalty.
+_RISK_ORDER = {"LOW": 0, "MEDIUM": 1, "MEDIUM-HIGH": 2, "HIGH": 3}
 
 
 def _load_pr(pr_dir: Path) -> tuple[ChangeInput, dict]:
@@ -55,19 +59,31 @@ def _score_case(actual, expected: dict) -> dict:
 
       - recall  (system / incident / approver / ADR): did required facts
         get surfaced at all.
-      - precision (system): claiming a service is affected when the fixture
-        says it plainly isn't — without this, a run that over-claims every
-        service in the catalog scores identically to a precise one.
+      - precision (system / incident): claiming a service is affected, or
+        an incident is relevant, when the fixture says it plainly isn't —
+        without this, a run that over-claims everything in the catalog
+        scores identically to a precise one. incident_precision is only
+        meaningful where must_mention_incidents is empty (pr_002, pr_004)
+        — for cases that already require specific incidents, "what else is
+        acceptable alongside them" isn't a clean question, so it's left at
+        the default 1.0 there rather than guessed at.
       - classification (risk_level / rollback_complexity): did the headline
         judgment match, checked as exact match against the fixture.
+        risk_underclassified additionally reports *which direction* a miss
+        went (called something less risky than it actually is, vs.
+        over-cautious) using RiskLevel's real ordinal order — not a
+        severity weight, so it's reported standalone and never folded into
+        `overall`.
 
-    `overall` is an UNWEIGHTED mean of all of the above — a rough
-    single-number gut-check for sorting cases, not a validated composite
-    metric. The weighting (equal, 7-way) has no business justification
-    behind it; read the per-dimension breakdown, not this number, when
-    deciding whether a change to a node made things better or worse. See
-    README "Eval → Limitations" for what this harness does not capture
-    (annotator agreement, confidence calibration, sample size).
+    `overall` is an UNWEIGHTED mean of the 8 recall/precision/classification
+    terms above — a rough single-number gut-check for sorting cases, not a
+    validated composite metric. The weighting has no business justification
+    behind it, and a hand-picked severity matrix wouldn't fix that — it
+    would just hide the same arbitrariness behind more decimal places. Read
+    the per-dimension breakdown, not this number, when deciding whether a
+    change to a node made things better or worse. See README "Eval →
+    Limitations" for what this harness does not capture (annotator
+    agreement, confidence calibration, sample size, suggest_tests quality).
     """
     affected_names = {s.name for s in actual.affected_systems}
     incident_ids = {i.incident_id for i in actual.historical_incidents}
@@ -93,16 +109,29 @@ def _score_case(actual, expected: dict) -> dict:
     sys_precision, false_positives = _precision(
         expected.get("must_not_mention_systems", []), affected_names,
     )
+    inc_precision, incident_false_positives = _precision(
+        expected.get("must_not_mention_incidents", []), incident_ids,
+    )
 
     expected_risk = expected.get("risk_level")
     risk_correct = expected_risk is None or actual.risk_level.value == expected_risk
+    # Direction only, never a magic severity number: was the miss on the
+    # dangerous side (called something less risky than it actually is) or
+    # the safe-but-annoying side (over-cautious)? None when correct/unknown.
+    risk_underclassified = None
+    if expected_risk is not None and not risk_correct:
+        actual_ord = _RISK_ORDER.get(actual.risk_level.value)
+        expected_ord = _RISK_ORDER.get(expected_risk)
+        if actual_ord is not None and expected_ord is not None:
+            risk_underclassified = actual_ord < expected_ord
+
     expected_rollback = expected.get("rollback_complexity")
     rollback_correct = (
         expected_rollback is None or actual.rollback_complexity.value == expected_rollback
     )
 
     all_terms = [
-        sys_recall, inc_recall, app_recall, adr_recall, sys_precision,
+        sys_recall, inc_recall, app_recall, adr_recall, sys_precision, inc_precision,
         1.0 if risk_correct else 0.0,
         1.0 if rollback_correct else 0.0,
     ]
@@ -114,7 +143,10 @@ def _score_case(actual, expected: dict) -> dict:
         "adr_recall": adr_recall,
         "system_precision": sys_precision,
         "false_positives": false_positives,
+        "incident_precision": inc_precision,
+        "incident_false_positives": incident_false_positives,
         "risk_level_correct": risk_correct,
+        "risk_underclassified": risk_underclassified,
         "rollback_complexity_correct": rollback_correct,
         "overall": sum(all_terms) / len(all_terms),
     }
@@ -156,28 +188,38 @@ def main():
     lines.append(f"Split: **{args.split}**\n")
     lines.append(
         "| Case | Sys recall | Inc recall | Appr recall | ADR recall | "
-        "Sys precision | Risk correct | Rollback correct | Overall* |"
+        "Sys precision | Inc precision | Risk correct | Rollback correct | Overall* |"
     )
-    lines.append("|---|---|---|---|---|---|---|---|---|")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|")
     for r in rows:
         if "error" in r:
-            lines.append(f"| {r['case']} | ERROR: {r['error']} | | | | | | | |")
+            lines.append(f"| {r['case']} | ERROR: {r['error']} | | | | | | | | |")
         else:
             fp_note = f" ({', '.join(r['false_positives'])})" if r["false_positives"] else ""
+            inc_fp_note = (
+                f" ({', '.join(r['incident_false_positives'])})"
+                if r["incident_false_positives"] else ""
+            )
+            risk_note = ""
+            if r["risk_level_correct"] is False and r["risk_underclassified"] is not None:
+                risk_note = " (under)" if r["risk_underclassified"] else " (over)"
             lines.append(
                 f"| {r['case']} | {r['system_recall']:.2f} | {r['incident_recall']:.2f} | "
                 f"{r['approver_recall']:.2f} | {r['adr_recall']:.2f} | "
                 f"{r['system_precision']:.2f}{fp_note} | "
-                f"{'✓' if r['risk_level_correct'] else '✗'} | "
+                f"{r['incident_precision']:.2f}{inc_fp_note} | "
+                f"{'✓' if r['risk_level_correct'] else '✗' + risk_note} | "
                 f"{'✓' if r['rollback_complexity_correct'] else '✗'} | {r['overall']:.2f} |"
             )
     overall = [r["overall"] for r in rows if "overall" in r]
     if overall:
         lines.append(f"\n**Mean overall: {sum(overall)/len(overall):.2f}**")
     lines.append(
-        "\n\\* Unweighted mean of all 7 dimensions — a sorting convenience, "
-        "not a validated composite metric. Read the columns, not this number; "
-        "see README \"Eval → Limitations\"."
+        "\n\\* Unweighted mean of 8 dimensions — a sorting convenience, "
+        "not a validated composite metric. \"(under)\" / \"(over)\" on a "
+        "wrong risk call means the miss was under/over-cautious relative to "
+        "the fixture — reported, not weighted into Overall. Read the "
+        "columns, not this number; see README \"Eval → Limitations\"."
     )
     RESULTS.write_text("\n".join(lines), encoding="utf-8")
     print(f"\nWrote {RESULTS}")

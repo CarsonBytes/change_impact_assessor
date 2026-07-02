@@ -126,6 +126,13 @@ def main() -> int:
             if inc not in inc_ids:
                 errors.append(f"sample_prs/{pr_name}/expected.json: "
                               f"references {inc} which does not exist")
+        for inc in exp.get("must_not_mention_incidents", []):
+            if inc not in inc_ids:
+                errors.append(f"sample_prs/{pr_name}/expected.json: "
+                              f"must_not_mention_incidents references '{inc}' which does not exist")
+            if inc in exp.get("must_mention_incidents", []):
+                errors.append(f"sample_prs/{pr_name}/expected.json: "
+                              f"'{inc}' is in both must_mention_incidents and must_not_mention_incidents")
         for approver in exp.get("must_mention_approvers", []):
             if approver not in approver_roles:
                 errors.append(f"sample_prs/{pr_name}/expected.json: "

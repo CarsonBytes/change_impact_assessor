@@ -4,6 +4,7 @@
   "must_mention_systems": ["mobile-banking-bff", "kyc-service"],
   "must_not_mention_systems": ["billing-api", "payments-svc"],
   "must_mention_incidents": [],
+  "must_not_mention_incidents": ["INC-2023-09", "INC-2025-02", "INC-2025-09"],
   "must_mention_adrs": [],
   "must_mention_approvers": ["Mobile Engineering Lead", "Compliance Officer"],
   "rollback_complexity": "TRIVIAL",

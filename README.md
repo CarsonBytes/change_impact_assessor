@@ -266,18 +266,24 @@ Each sample PR is scored on three genuinely different failure modes, reported se
 | Dimension | What it catches | Fixture field |
 |---|---|---|
 | Recall (system / incident / approver / ADR) | A required fact never got surfaced | `must_mention_*` |
-| Precision (system) | A system is claimed affected that plainly isn't | `must_not_mention_systems` |
+| Precision (system / incident) | A system or incident is claimed relevant that plainly isn't | `must_not_mention_*` |
 | Classification accuracy (risk level / rollback complexity) | The headline judgment is wrong even though recall is perfect | `risk_level`, `rollback_complexity` |
 
-`overall` in `eval/results.md` is an **unweighted mean of all 7 dimensions** — a sorting convenience for "did this get better or worse," not a validated composite metric. Read the per-dimension columns when deciding whether a prompt or node change actually helped.
+`overall` in `eval/results.md` is an **unweighted mean of all 8 dimensions** — a sorting convenience for "did this get better or worse," not a validated composite metric. Read the per-dimension columns when deciding whether a prompt or node change actually helped.
+
+A wrong `risk_level` call additionally reports **direction** — `risk_underclassified` (True/False/None) — using `RiskLevel`'s real ordinal order (LOW < MEDIUM < MEDIUM-HIGH < HIGH), not a severity weight: it says which way a miss went, it doesn't try to price it. `eval/results.md` marks a wrong call `✗ (under)` or `✗ (over)`. Calling something less risky than it actually is (under) is the dangerous direction; over is safe but adds approval friction. This is reported standalone, never folded into `overall` — see below for why a numeric severity matrix was considered and rejected.
+
+`incident_precision` is only meaningful for fixtures where `must_mention_incidents` is empty (`pr_002`, `pr_004`) — for cases that already require specific incidents, "what else is acceptable alongside them" isn't a clean question, so it's left at the default there rather than guessed at.
 
 ### Limitations
 
 This eval harness is a reasonable starting point for a solo-authored demo, not a rigorous measurement instrument. Specifically:
 
 - **Fixtures are single-annotator.** `expected.json` for each sample PR was written by the same person who wrote the code being evaluated, with no independent review and no inter-annotator agreement measurement. "Must mention" and "must not mention" are judgment calls, not ground truth handed down from a labeling process.
-- **n = 5** (3 dev, 2 held-out test). Nowhere near enough for statistical confidence in any single number.
+- **n = 5** (3 dev, 2 held-out test). Nowhere near enough for statistical confidence in any single number. Deliberately not growing this for a demo — more fixtures without a real annotation process would just be more single-annotator opinions, not more rigor.
 - **No confidence calibration.** `llm_confidence` (the model's self-rated certainty per affected system) is never checked against actual accuracy — with 5 cases there isn't enough data to bin a calibration curve meaningfully.
-- **The 7-way equal weighting is not business-validated.** Whether a missed Compliance Officer approval (a compliance failure) should cost more than an imprecise rollback note is a real question this harness doesn't answer — it treats them identically. In a real deployment, weighting and what counts as "must mention" should come from whoever owns the cost of getting it wrong (compliance/security for approver recall, SRE for incident relevance), not from the person who wrote the retrieval code.
+- **The 8-way equal weighting is not business-validated**, and a hand-picked severity matrix (e.g. weighting a missed Compliance Officer approval above an imprecise rollback note, or scoring risk-classification misses by how far off they are) wouldn't fix that — it would hide the same arbitrariness behind more decimal places. Weighting should come from whoever owns the cost of getting it wrong (compliance/security for approver recall, SRE for incident relevance), not from the person who wrote the retrieval code. `risk_underclassified` is the one piece of severity information reported anyway, because *direction* is a fact given `RiskLevel`'s existing order, not an invented weight — magnitude still isn't scored.
+- **`suggest_tests` output has no eval coverage.** Unlike service/incident/approver/ADR names, regression-test-suite names don't have one canonical right answer — several differently-named suites could reasonably cover the same testing need. A fair automated recall/precision check for this dimension is a harder problem than the other four and hasn't been solved here.
+- **No structured error analysis.** When a case scores low, there's no tooling that attributes the miss to a specific node (retrieval vs. LLM reasoning vs. a prompt issue) or surfaces cross-case failure patterns — debugging a bad score currently means reading `results.md` and the transcript by hand.
 
-None of these are fixed by writing more scoring code — they need more annotators, more cases, and a domain owner, which is out of scope for a demo project authored by one person.
+None of these are fixed by writing more scoring code — most need more annotators, more cases, and a domain owner, which is out of scope for a demo project authored by one person.
