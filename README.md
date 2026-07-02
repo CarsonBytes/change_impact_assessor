@@ -66,9 +66,19 @@ rather than adding new capability:
 - Deployed via Docker SDK on Hugging Face Spaces (native Streamlit SDK isn't offered by Spaces' current create-flow; Docker running `streamlit run app.py` is the equivalent) — see `Dockerfile`
 - Eval harness scoring gap closed — `risk_level` and `rollback_complexity` sat in every fixture as ground truth but were never scored; see **Eval** below
 
+### Phase 1.6 — Human-in-the-loop approval gate (complete)
+
+HIGH-risk changes now pause the graph rather than just being labeled HIGH and moving on:
+
+- New `await_approval` node; the graph compiles with `interrupt_before=["await_approval"]` plus a checkpointer, so a HIGH-risk run stops immediately before that node instead of running to completion unattended
+- `assemble` sets `ImpactAssessment.human_approved = (risk_level != HIGH)` — non-HIGH assessments are auto-clear; HIGH ones start `False`
+- The Streamlit UI shows the fully-computed report with a pending-approval banner and an **Acknowledge & Finalize** button; resuming the graph (`graph.invoke(None, config)`) flips the flag and reaches `END` without re-running any node
+- The persistent cache only writes **after** approval — a paused HIGH-risk assessment is never cached, so loading it later from the sidebar can't silently skip the gate
+- `graph.py`'s checkpointer is an in-memory `MemorySaver`, one per Streamlit session — a pending approval does not survive an app restart (see **Known limitations**)
+- `tests/test_graph_approval_gate.py` exercises the interrupt → pause → resume cycle at the graph level (mocked LLM + retrieval, no network)
+
 ### Phase 2 — Optional extensions (not started)
 
-- Human-in-the-loop interrupt at HIGH risk (LangGraph `interrupt` primitive)
 - GitHub Actions integration — webhook in, PR comment out
 - Trend analysis across many assessments (aggregate the structured outputs)
 - Confidence calibration trained on user accept/reject feedback
@@ -111,6 +121,16 @@ This project demonstrates that pattern.
 │       └──────────┬───────────┘                                   │
 │                  ▼                                               │
 │              assemble       → ImpactAssessment (Pydantic)        │
+│                  │                                               │
+│           risk_level == HIGH?                                    │
+│       ┌─────yes───┴───no──────┐                                  │
+│       ▼                        ▼                                 │
+│ await_approval                END                                │
+│ (graph interrupts here —                                         │
+│  resumes only on human ack)                                      │
+│       │                                                          │
+│       ▼                                                          │
+│      END                                                         │
 └──────────────────────────────────────────────────────────────────┘
                │
                ▼
@@ -134,7 +154,7 @@ A general-purpose LLM produces generic blast-radius advice. Retrieval over the c
 `retrieval_confidence` (objective, from similarity score) and `llm_confidence` (the LLM's self-rating) are shown side by side in the UI. Combining them into one weighted score would require justifying weights that would be hand-picked, not learned. Keeping them separate preserves the difference between objective evidence and model certainty.
 
 ### LangGraph rather than asyncio + functions
-For v1, two fan-out / fan-in points — `asyncio.gather()` could express this. LangGraph is used because the planned Phase 2 extension (interrupt the graph at HIGH risk for human approval) requires its checkpoint/resume primitives. Phase 0/1 uses basic features only.
+For v1, two fan-out / fan-in points — `asyncio.gather()` could express this. LangGraph earns its place from Phase 1.6: the human-in-the-loop approval gate on HIGH-risk changes runs on `interrupt_before` plus a checkpointer, LangGraph-specific primitives with no equivalent in plain async functions.
 
 ### Synthetic Fintora corpus, not public OSS data
 The use case requires cross-referenced internal artifacts: ADRs cited by postmortems, services with named owners, incidents with affected-system lists. Public projects don't publish these in linked form. Cross-references are validated programmatically — see `eval/validate_corpus.py`.
@@ -153,6 +173,8 @@ What is reused from the companion projects: the LlamaIndex framework, the BGE-sm
 - Pydantic validation retry is single-shot, centralised in `llm.call_llm_json_validated`. If invalid JSON returns twice, the caller gets the exception (the UI surfaces an error); the `assemble` node's rollback sub-call is the one exception — it degrades to a safe default instead of retrying (see `assessor/nodes/assemble.py`).
 - No auth or rate-limiting on the public demo — it spends real API credits per request. Fine for a portfolio demo, not fine for anything beyond it.
 - The persistent cache (`assessor/cache.py`) is local-disk. On Hugging Face Spaces' free tier it survives a simple restart but not a rebuild (triggered by every push) — nothing depends on it surviving, but don't expect a warm cache after a deploy.
+- The human-in-the-loop approval gate's checkpointer (`MemorySaver`) is in-memory and scoped to one Streamlit session. A HIGH-risk assessment left pending survives page reloads within the session but not an app restart or a second browser session — there is no shared/persistent thread store. The gate demonstrates the LangGraph mechanism; it is not a durable approval queue.
+- The gate is advisory, not enforcing. This tool doesn't integrate with GitHub/CI, so there is nothing outside itself for "pending approval" to actually block — clicking Acknowledge finalizes the record, it doesn't gate a real merge.
 
 ---
 
@@ -201,7 +223,7 @@ python -m eval.run_eval --split test   # held-out test set
 | `assessor/retrieval.py` | LlamaIndex RAG with per-doc-type filtering |
 | `assessor/llm.py` | Multi-provider abstraction |
 | `assessor/graph.py` | LangGraph state machine |
-| `assessor/nodes/` | 7 node functions — each `(state) → partial state update` |
+| `assessor/nodes/` | 8 node functions — each `(state) → partial state update` |
 | `assessor/report.py` | Markdown report renderer |
 | `assessor/cache.py` | Persistent disk cache for LLM-generated assessments |
 | `data/adrs/` | Fintora ADRs |

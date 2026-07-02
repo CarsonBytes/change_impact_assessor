@@ -101,6 +101,13 @@ class ImpactAssessment(BaseModel):
     rollback_notes: list[str] = Field(default_factory=list,
         description="Considerations specific to rolling this change back")
 
+    # HIGH risk changes are gated behind a human-in-the-loop interrupt (see
+    # graph.py) before this is considered final. Everything else defaults to
+    # True — no gate applies. False means the assessment was produced but is
+    # awaiting acknowledgement; see assessor/nodes/await_approval.py.
+    human_approved: bool = Field(True,
+        description="False only while a HIGH-risk assessment awaits human sign-off")
+
     # Metadata
     elapsed_seconds: Optional[float] = Field(None,
         description="End-to-end LangGraph execution time")

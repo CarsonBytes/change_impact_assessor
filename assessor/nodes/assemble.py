@@ -115,6 +115,9 @@ def assemble(state: dict, *, llm_fn=None) -> dict:
         regression_tests=state.get("regression_tests") or [],
         rollback_complexity=rc,
         rollback_notes=rollback.rollback_notes,
+        # HIGH risk starts unapproved — the graph interrupts before
+        # await_approval and only that node (on resume) flips this to True.
+        human_approved=(risk != RiskLevel.HIGH),
         provider=state.get("provider"),
         model=state.get("model"),
     )

@@ -6,6 +6,7 @@ from .score_blast_radius import score_blast_radius
 from .identify_approvers import identify_approvers
 from .suggest_tests import suggest_tests
 from .assemble import assemble
+from .await_approval import await_approval
 
 __all__ = [
     "extract_targets",
@@ -15,4 +16,5 @@ __all__ = [
     "identify_approvers",
     "suggest_tests",
     "assemble",
+    "await_approval",
 ]

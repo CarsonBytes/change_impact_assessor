@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from pathlib import Path
 
 import streamlit as st
@@ -76,6 +77,29 @@ if "active_pr" not in st.session_state:
     st.session_state["active_pr"] = None
 if "assessment" not in st.session_state:
     st.session_state["assessment"] = None
+if "pending_thread_id" not in st.session_state:
+    st.session_state["pending_thread_id"] = None
+if "pending_change" not in st.session_state:
+    st.session_state["pending_change"] = None
+
+
+def _clear_pending() -> None:
+    """Abandon any in-progress human-in-the-loop approval — the paused
+    LangGraph thread is just left in the (in-memory, per-session)
+    checkpointer; nothing to clean up server-side."""
+    st.session_state["pending_thread_id"] = None
+    st.session_state["pending_change"] = None
+
+
+def _get_graph():
+    """Rebuild the graph wiring fresh each call (cheap, stateless) but
+    reuse the SAME checkpointer across Streamlit reruns — a fresh
+    MemorySaver would have no memory of any paused thread."""
+    if "checkpointer" not in st.session_state:
+        from langgraph.checkpoint.memory import MemorySaver
+        st.session_state["checkpointer"] = MemorySaver()
+    from assessor.graph import build_graph
+    return build_graph(checkpointer=st.session_state["checkpointer"])
 
 
 # ─── Sidebar ────────────────────────────────────────────────────────────────
@@ -96,6 +120,7 @@ for pr_dir in sample_dirs:
     ):
         st.session_state["active_pr"] = pr_dir.name
         st.session_state["assessment"] = None
+        _clear_pending()
         st.rerun()
 
 # Paste your own
@@ -121,6 +146,7 @@ if _cached_entries:
             if loaded is not None:
                 st.session_state["assessment"] = loaded
                 st.session_state["active_pr"] = None
+                _clear_pending()
                 st.rerun()
 
 
@@ -243,21 +269,21 @@ _NODE_LABELS = {
 _HAS_API_KEY = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY"))
 
 
-def _run_real_assessment(change, status_container):
+def _run_real_assessment(change, status_container, graph, config):
     """
     Run the LangGraph end-to-end, streaming per-node progress to the UI.
-    Returns the final ImpactAssessment, or None on failure.
+    Returns (assessment, paused) — paused is True for a HIGH-risk change
+    where the graph has stopped before await_approval and is waiting on a
+    human to resume it (see graph._route_after_assemble).
     """
-    from assessor.graph import build_graph
     import time
 
-    graph = build_graph()
     started = time.time()
     initial_state: dict = {"change": change, "started_at": started}
 
     final_state: dict = {}
     try:
-        for event in graph.stream(initial_state):
+        for event in graph.stream(initial_state, config):
             # `event` is a dict {node_name: partial_state_update}
             for node_name, partial in event.items():
                 label = _NODE_LABELS.get(node_name, node_name)
@@ -266,12 +292,20 @@ def _run_real_assessment(change, status_container):
                     final_state.update(partial)
     except Exception as e:
         status_container.error(f"Assessment failed: {e}")
-        return None
+        return None, False
 
     assessment = final_state.get("assessment")
     if assessment is not None:
         assessment.elapsed_seconds = round(time.time() - started, 2)
-    return assessment
+    paused = bool(graph.get_state(config).next)
+    return assessment, paused
+
+
+def _resume_after_approval(graph, config):
+    """Resume a paused run — the await_approval node flips human_approved
+    and the graph proceeds straight to END; nothing is re-computed."""
+    result = graph.invoke(None, config)
+    return result.get("assessment")
 
 
 if submitted:
@@ -279,6 +313,7 @@ if submitted:
         st.error("PR title is required.")
         st.stop()
     change = ChangeInput(title=title, description=description, diff=diff_text or None)
+    _clear_pending()
 
     with st.status("🔄 Assessing impact...", expanded=True) as status:
         cached = cache.load(change) if _HAS_API_KEY else None
@@ -287,12 +322,20 @@ if submitted:
             st.session_state["assessment"] = cached
             status.update(label="✅ Loaded from cache", state="complete")
         elif _HAS_API_KEY:
-            assessment = _run_real_assessment(change, status)
+            graph = _get_graph()
+            thread_id = str(uuid.uuid4())
+            config = {"configurable": {"thread_id": thread_id}}
+            assessment, paused = _run_real_assessment(change, status, graph, config)
             if assessment is not None:
-                cache.save(change, assessment)
                 st.session_state["assessment"] = assessment
-                status.update(label=f"✅ Assessment complete ({assessment.elapsed_seconds or 0:.1f}s)",
-                              state="complete")
+                if paused:
+                    st.session_state["pending_thread_id"] = thread_id
+                    st.session_state["pending_change"] = change
+                    status.update(label="⚠️ HIGH risk — awaiting acknowledgement", state="complete")
+                else:
+                    cache.save(change, assessment)
+                    status.update(label=f"✅ Assessment complete ({assessment.elapsed_seconds or 0:.1f}s)",
+                                  state="complete")
             else:
                 status.update(label="❌ Assessment failed — see error above", state="error")
         else:
@@ -309,6 +352,31 @@ if submitted:
 assessment: ImpactAssessment | None = st.session_state.get("assessment")
 
 if assessment is not None:
+    # Human-in-the-loop gate — HIGH risk pauses the graph before await_approval
+    if not assessment.human_approved and st.session_state.get("pending_thread_id"):
+        st.markdown("---")
+        st.warning(
+            "⚠️ **HIGH risk — pending human sign-off.** The assessment below "
+            "is fully computed, but the LangGraph run is paused "
+            "(`interrupt_before=[\"await_approval\"]`) until someone "
+            "acknowledges it. It will not be cached as final until you do."
+        )
+        gate_cols = st.columns([1, 1, 4])
+        if gate_cols[0].button("✅ Acknowledge & Finalize", type="primary"):
+            graph = _get_graph()
+            config = {"configurable": {"thread_id": st.session_state["pending_thread_id"]}}
+            approved = _resume_after_approval(graph, config)
+            if approved is not None:
+                approved.elapsed_seconds = assessment.elapsed_seconds
+                cache.save(st.session_state["pending_change"], approved)
+                st.session_state["assessment"] = approved
+                _clear_pending()
+                st.rerun()
+        if gate_cols[1].button("Discard"):
+            st.session_state["assessment"] = None
+            _clear_pending()
+            st.rerun()
+
     # Hero card
     icon, _colour = RISK_COLOURS.get(assessment.risk_level.value, ("⚪", "#666"))
     st.markdown("---")
