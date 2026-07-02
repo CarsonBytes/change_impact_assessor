@@ -22,9 +22,9 @@ DESIGN NOTES:
 """
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
-from ..llm import call_llm_json
+from ..llm import call_llm_json_validated
 from ..schema import RegressionTest
 
 
@@ -92,17 +92,7 @@ def _build_user_message(state: dict) -> str:
 def suggest_tests(state: dict, *, llm_fn=None) -> dict:
     user_msg = _build_user_message(state)
 
-    try:
-        raw = call_llm_json(SYSTEM_PROMPT, user_msg, llm_fn=llm_fn)
-        parsed = _TestsOutput.model_validate(raw)
-    except (ValidationError, ValueError) as e:
-        retry_msg = (
-            user_msg
-            + f"\n\n## Previous attempt failed validation\n{e}\n"
-            + "Please respond again with valid JSON matching the schema."
-        )
-        raw = call_llm_json(SYSTEM_PROMPT, retry_msg, llm_fn=llm_fn)
-        parsed = _TestsOutput.model_validate(raw)
+    parsed = call_llm_json_validated(SYSTEM_PROMPT, user_msg, _TestsOutput, llm_fn=llm_fn)
 
     tests = [
         RegressionTest(target=t.target, rationale=t.rationale)

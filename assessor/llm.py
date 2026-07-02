@@ -12,7 +12,11 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Optional
+from typing import Optional, TypeVar
+
+from pydantic import BaseModel, ValidationError
+
+ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
 ANTHROPIC_MODEL_FALLBACK = "claude-sonnet-4-5"
@@ -107,3 +111,24 @@ def call_llm_json(system: str, user: str, *, model: Optional[str] = None,
     """Convenience: call with json_mode + json.loads on the output."""
     raw = call_llm(system, user, model=model, json_mode=True, llm_fn=llm_fn)
     return json.loads(raw)
+
+
+def call_llm_json_validated(system: str, user: str, output_model: type[ModelT], *,
+                            model: Optional[str] = None, llm_fn=None) -> ModelT:
+    """
+    Call the LLM for JSON and validate against `output_model`. On a schema
+    failure, retry once with the validation error fed back to the model —
+    the only auto-retry in the graph. Shared by every LLM-prompt node so the
+    single-retry behaviour lives in one place instead of being hand-copied.
+    """
+    try:
+        raw = call_llm_json(system, user, model=model, llm_fn=llm_fn)
+        return output_model.model_validate(raw)
+    except (ValidationError, ValueError) as e:
+        retry_user = (
+            user
+            + f"\n\n## Previous attempt failed validation\n{e}\n"
+            + "Please respond again with valid JSON matching the schema."
+        )
+        raw = call_llm_json(system, retry_user, model=model, llm_fn=llm_fn)
+        return output_model.model_validate(raw)

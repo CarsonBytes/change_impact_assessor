@@ -9,9 +9,9 @@ the same shape: LLM call → JSON parse → Pydantic validate → state update.
 """
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
-from ..llm import call_llm_json
+from ..llm import call_llm_json_validated
 
 
 SYSTEM_PROMPT = """You are a senior engineering reviewer assessing a proposed code change.
@@ -52,19 +52,9 @@ def extract_targets(state: dict, *, service_names: list[str], llm_fn=None) -> di
         f"{', '.join(service_names)}\n"
     )
 
-    try:
-        raw = call_llm_json(SYSTEM_PROMPT, user_msg, llm_fn=llm_fn)
-        parsed = ExtractTargetsOutput.model_validate(raw)
-    except (ValidationError, ValueError) as e:
-        # Single retry with the validation error as context (the only
-        # auto-retry in the v1 graph — see Pydantic-retry section in README).
-        retry_msg = (
-            user_msg
-            + f"\n\n## Previous attempt failed validation\n{e}\n"
-            + "Please respond again with valid JSON matching the schema."
-        )
-        raw = call_llm_json(SYSTEM_PROMPT, retry_msg, llm_fn=llm_fn)
-        parsed = ExtractTargetsOutput.model_validate(raw)
+    parsed = call_llm_json_validated(
+        SYSTEM_PROMPT, user_msg, ExtractTargetsOutput, llm_fn=llm_fn,
+    )
 
     # Reject any hallucinated service names not in the catalog
     cleaned = [s for s in parsed.change_targets if s in service_names]

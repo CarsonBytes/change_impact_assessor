@@ -31,9 +31,9 @@ DESIGN NOTES (read these before tweaking the prompt):
 """
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
-from ..llm import call_llm_json
+from ..llm import call_llm_json_validated
 from ..schema import AffectedSystem, SourceCitation
 
 
@@ -175,18 +175,8 @@ def score_blast_radius(state: dict, *, service_names: list[str], llm_fn=None) ->
     user_msg = _build_user_message(state, service_names)
     catalog_set = set(service_names)
 
-    # One LLM call with single-retry-on-validation-failure
-    try:
-        raw = call_llm_json(SYSTEM_PROMPT, user_msg, llm_fn=llm_fn)
-        parsed = _ScoreOutput.model_validate(raw)
-    except (ValidationError, ValueError) as e:
-        retry_msg = (
-            user_msg
-            + f"\n\n## Previous attempt failed validation\n{e}\n"
-            + "Please respond again with valid JSON matching the schema."
-        )
-        raw = call_llm_json(SYSTEM_PROMPT, retry_msg, llm_fn=llm_fn)
-        parsed = _ScoreOutput.model_validate(raw)
+    # One LLM call with single-retry-on-validation-failure (see llm.call_llm_json_validated)
+    parsed = call_llm_json_validated(SYSTEM_PROMPT, user_msg, _ScoreOutput, llm_fn=llm_fn)
 
     # Build AffectedSystem objects, computing retrieval_confidence per system
     # and dropping any hallucinated names not in the catalog.
