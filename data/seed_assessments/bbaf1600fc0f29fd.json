@@ -183,7 +183,7 @@
     "The change spans multiple services (billing-api, audit-log, payments-svc, subscription-service); rolling back requires coordinated deployment across these services.",
     "No data migration is stated, so the schema change in reporting is likely reversible if the database migration is designed to be downgradable."
   ],
-  "human_approved": true,
+  "human_approved": false,
   "elapsed_seconds": 48.87,
   "provider": null,
   "model": null

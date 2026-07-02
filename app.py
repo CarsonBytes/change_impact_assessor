@@ -365,27 +365,48 @@ if submitted:
 assessment: ImpactAssessment | None = st.session_state.get("assessment")
 
 if assessment is not None:
-    # Human-in-the-loop gate — HIGH risk pauses the graph before await_approval
-    if not assessment.human_approved and st.session_state.get("pending_thread_id"):
+    # Human-in-the-loop gate — shown for ANY unapproved HIGH-risk assessment,
+    # whether it's a live paused run or one loaded from cache/seed. A cached
+    # load never has a pending_thread_id (there's no live graph to resume),
+    # but the underlying invariant is the same either way: a HIGH-risk
+    # assessment shouldn't be presented as finalized without acknowledgement.
+    if not assessment.human_approved:
         st.markdown("---")
         st.warning(
             "⚠️ **HIGH risk — pending human sign-off.** The assessment below "
-            "is fully computed, but the LangGraph run is paused "
-            "(`interrupt_before=[\"await_approval\"]`) until someone "
-            "acknowledges it. It will not be cached as final until you do."
+            "is fully computed but not yet acknowledged."
+            + (
+                " The LangGraph run is paused (`interrupt_before=[\"await_approval\"]`) "
+                "until someone acknowledges it; it will not be cached as final until you do."
+                if st.session_state.get("pending_thread_id")
+                else " (Loaded from cache — acknowledging here doesn't persist for other "
+                     "visitors, so the gate is there to see again next time.)"
+            )
         )
         gate_cols = st.columns([1, 1, 4])
         if gate_cols[0].button("✅ Acknowledge & Finalize", type="primary"):
-            graph = _get_graph()
-            config = {"configurable": {"thread_id": st.session_state["pending_thread_id"]}}
-            approved = _resume_after_approval(graph, config)
-            if approved is not None:
-                approved.elapsed_seconds = assessment.elapsed_seconds
-                cache.save(st.session_state["pending_change"], approved)
-                st.session_state["assessment"] = approved
-                st.session_state["assessment_from_cache"] = False
-                _clear_pending()
-                st.rerun()
+            if st.session_state.get("pending_thread_id"):
+                # Live paused run — actually resume the graph.
+                graph = _get_graph()
+                config = {"configurable": {"thread_id": st.session_state["pending_thread_id"]}}
+                approved = _resume_after_approval(graph, config)
+                if approved is not None:
+                    approved.elapsed_seconds = assessment.elapsed_seconds
+                    cache.save(st.session_state["pending_change"], approved)
+                    st.session_state["assessment"] = approved
+                    st.session_state["assessment_from_cache"] = False
+            else:
+                # Cache/seed-loaded — no live thread to resume. Apply the
+                # identical transformation await_approval.py would (it only
+                # ever flips this one field) for this viewing session only;
+                # not written back to disk, so the next visitor — or the
+                # next reload — sees the gate fresh rather than the first
+                # person to click it silently clearing it for everyone.
+                st.session_state["assessment"] = assessment.model_copy(
+                    update={"human_approved": True},
+                )
+            _clear_pending()
+            st.rerun()
         if gate_cols[1].button("Discard"):
             st.session_state["assessment"] = None
             _clear_pending()

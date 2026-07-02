@@ -206,7 +206,7 @@
     "Data written to the new ap-southeast-3 cluster during the dual-write window would need to be synchronized back to ensure the audit hash chain remains intact.",
     "A rollback post-cutover would involve another data migration event, similar in complexity to the initial change."
   ],
-  "human_approved": true,
+  "human_approved": false,
   "elapsed_seconds": 89.85,
   "provider": null,
   "model": null
